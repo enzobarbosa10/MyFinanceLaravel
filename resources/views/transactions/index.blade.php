@@ -1,5 +1,6 @@
 @extends('layouts.app')
 @section('title', 'Transações — MyFinance')
+@use(App\Enums\TransactionType)
 
 @section('content')
 <div class="card">
@@ -49,20 +50,20 @@
                     <tr>
                         <td>{{ $t->transaction_at->format('d/m/Y') }}</td>
                         <td>
-                            <span class="badge {{ $t->type === 'entrada' ? 'badge-entrada' : 'badge-saida' }}">
-                                {!! $t->type === 'entrada' ? '&#8593; Entrada' : '&#8595; Saída' !!}
+                            <span class="badge {{ $t->type === TransactionType::Entrada ? 'badge-entrada' : 'badge-saida' }}">
+                                {!! $t->type === TransactionType::Entrada ? '&#8593; Entrada' : '&#8595; Saída' !!}
                             </span>
                         </td>
                         <td>{{ $t->category->name }}</td>
                         <td>{{ $t->account->name }}</td>
                         <td>{{ $t->description ?: '—' }}</td>
-                        <td class="{{ $t->type === 'entrada' ? 'value-positive' : 'value-negative' }}">
+                        <td class="{{ $t->type === TransactionType::Entrada ? 'value-positive' : 'value-negative' }}">
                             R$ {{ number_format($t->amount, 2, ',', '.') }}
                         </td>
                         <td>
-                            <form method="POST" action="{{ route('transactions.destroy') }}" style="margin:0;" onsubmit="return confirm('Excluir esta transação?')">
+                            <form method="POST" action="{{ route('transactions.destroy', $t) }}" style="margin:0;" onsubmit="return confirm('Excluir esta transação?')">
                                 @csrf
-                                <input type="hidden" name="id" value="{{ $t->id }}">
+                                @method('DELETE')
                                 <button type="submit" class="btn btn-danger btn-sm">✕</button>
                             </form>
                         </td>
@@ -73,5 +74,11 @@
             </tbody>
         </table>
     </div>
+
+    @if($transactions->hasPages())
+    <div style="margin-top: 1.25rem;">
+        {{ $transactions->links() }}
+    </div>
+    @endif
 </div>
 @endsection

@@ -67,6 +67,29 @@
 </div>
 
 <!-- CHARTS ROW -->
+@if($budgetAlerts->count() > 0)
+<div class="card" style="border-left:4px solid var(--danger);margin-bottom:1.5rem;">
+    <div class="card-header">
+        <span class="card-title">⚠️ Alertas de Orçamento</span>
+    </div>
+    @foreach($budgetAlerts as $alert)
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:0.5rem 0;border-bottom:1px solid var(--border);">
+            <div>
+                <span style="font-weight:600;">{{ $alert->budget->category->name ?? 'Categoria' }}</span>
+                @if($alert->alert_type === 'exceeded')
+                    <span style="background:var(--danger);color:#fff;padding:0.15rem 0.5rem;border-radius:6px;font-size:0.75rem;margin-left:0.5rem;">Estourado</span>
+                @else
+                    <span style="background:#f59e0b;color:#fff;padding:0.15rem 0.5rem;border-radius:6px;font-size:0.75rem;margin-left:0.5rem;">Atenção</span>
+                @endif
+            </div>
+            <span style="font-size:0.875rem;font-weight:600;color:{{ $alert->alert_type === 'exceeded' ? 'var(--danger)' : '#f59e0b' }};">
+                {{ number_format($alert->percentage, 0) }}% do orçamento
+            </span>
+        </div>
+    @endforeach
+</div>
+@endif
+
 <div class="charts-row">
     <!-- Gastos por Categoria -->
     <div class="card">
@@ -150,10 +173,10 @@
         </div>
         @forelse($budgets->take(4) as $budget)
             @php
-                $spent = \App\Models\Transaction::where('user_id', auth()->id())
+                $spent = \App\Models\Transaction::forUser(auth()->id())
                     ->where('category_id', $budget->category_id)
-                    ->where('type', 'saida')
-                    ->whereRaw("DATE_FORMAT(transaction_at, '%Y-%m') = ?", [$month])
+                    ->ofType(\App\Enums\TransactionType::Saida)
+                    ->forMonth($month)
                     ->sum('amount');
                 $pct = $budget->amount > 0 ? round(($spent / $budget->amount) * 100, 1) : 0;
                 $barClass = $pct >= 100 ? 'progress-bar-exceeded' : ($pct >= 80 ? 'progress-bar-warning' : 'progress-bar-ok');

@@ -2,12 +2,15 @@
 
 namespace App\Models;
 
+use App\Enums\TransactionType;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Category extends Model
 {
+    use HasFactory;
     protected $fillable = ['user_id', 'name', 'type'];
 
     public function user(): BelongsTo
@@ -28,17 +31,17 @@ class Category extends Model
     public static function seedDefaults(int $userId): void
     {
         $defaults = [
-            ['Salário', 'entrada'],
-            ['Freelance', 'entrada'],
-            ['Rendimentos', 'entrada'],
-            ['Outros (entrada)', 'entrada'],
-            ['Alimentação', 'saida'],
-            ['Transporte', 'saida'],
-            ['Moradia', 'saida'],
-            ['Saúde', 'saida'],
-            ['Educação', 'saida'],
-            ['Lazer', 'saida'],
-            ['Outros (saída)', 'saida'],
+            ['Salário', TransactionType::Entrada],
+            ['Freelance', TransactionType::Entrada],
+            ['Rendimentos', TransactionType::Entrada],
+            ['Outros (entrada)', TransactionType::Entrada],
+            ['Alimentação', TransactionType::Saida],
+            ['Transporte', TransactionType::Saida],
+            ['Moradia', TransactionType::Saida],
+            ['Saúde', TransactionType::Saida],
+            ['Educação', TransactionType::Saida],
+            ['Lazer', TransactionType::Saida],
+            ['Outros (saída)', TransactionType::Saida],
         ];
 
         foreach ($defaults as [$name, $type]) {

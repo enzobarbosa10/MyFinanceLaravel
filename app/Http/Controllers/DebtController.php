@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\StoreDebtRequest;
+use App\Http\Requests\UpdateDebtRequest;
 use App\Models\Debt;
 use App\Models\DebtPayment;
 use Illuminate\Http\Request;
@@ -31,16 +33,8 @@ class DebtController extends Controller
         return view('debts.create');
     }
 
-    public function store(Request $request)
+    public function store(StoreDebtRequest $request)
     {
-        $request->validate([
-            'name' => 'required|string|max:100',
-            'total_amount' => 'required|numeric|min:0.01',
-            'monthly_interest_rate' => 'nullable|numeric|min:0',
-            'min_payment' => 'nullable|numeric|min:0',
-            'due_day' => 'required|integer|min:1|max:31',
-            'creditor' => 'nullable|string|max:100',
-        ]);
 
         Debt::create([
             'user_id' => Auth::id(),
@@ -63,7 +57,8 @@ class DebtController extends Controller
             'notes' => 'nullable|string|max:255',
         ]);
 
-        $debt = Debt::where('id', $request->debt_id)->where('user_id', Auth::id())->firstOrFail();
+        $debt = Debt::findOrFail($request->debt_id);
+        $this->authorize('update', $debt);
 
         DB::transaction(function () use ($debt, $request) {
             DebtPayment::create([
@@ -81,5 +76,27 @@ class DebtController extends Controller
         });
 
         return redirect()->route('debts.index')->with('success', 'Pagamento registrado!');
+    }
+
+    public function edit(Debt $debt)
+    {
+        $this->authorize('update', $debt);
+        return view('debts.edit', compact('debt'));
+    }
+
+    public function update(UpdateDebtRequest $request, Debt $debt)
+    {
+        $this->authorize('update', $debt);
+
+        $debt->update([
+            'name' => $request->name,
+            'total_amount' => $request->total_amount,
+            'monthly_interest_rate' => $request->monthly_interest_rate ?? 0,
+            'min_payment' => $request->min_payment ?? 0,
+            'due_day' => $request->due_day,
+            'creditor' => $request->creditor,
+        ]);
+
+        return redirect()->route('debts.index')->with('success', 'Dívida atualizada!');
     }
 }

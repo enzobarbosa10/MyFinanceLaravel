@@ -1,5 +1,6 @@
 @extends('layouts.app')
 @section('title', 'Nova Transação — MyFinance')
+@use(App\Enums\TransactionType)
 
 @section('content')
 <div class="card">
@@ -19,8 +20,8 @@
             <label for="type">Tipo</label>
             <select id="type" name="type" required>
                 <option value="">Selecione</option>
-                <option value="entrada" {{ old('type') === 'entrada' ? 'selected' : '' }}>Entrada</option>
-                <option value="saida" {{ old('type') === 'saida' ? 'selected' : '' }}>Saída</option>
+                <option value="{{ TransactionType::Entrada->value }}" {{ old('type') === TransactionType::Entrada->value ? 'selected' : '' }}>Entrada</option>
+                <option value="{{ TransactionType::Saida->value }}" {{ old('type') === TransactionType::Saida->value ? 'selected' : '' }}>Saída</option>
             </select>
 
             <label for="category_id">Categoria</label>

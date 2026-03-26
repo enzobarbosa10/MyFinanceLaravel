@@ -12,6 +12,7 @@ return new class extends Migration
             $table->id();
             $table->string('email', 150)->index();
             $table->string('ip_address', 45)->index();
+            $table->string('user_agent', 500)->nullable();
             $table->dateTime('attempt_time')->useCurrent()->index();
         });
     }

@@ -2,6 +2,7 @@
 
 namespace App\Providers;
 
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
@@ -19,6 +20,8 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        //
+        Gate::policy(\App\Models\Goal::class, \App\Policies\GoalPolicy::class);
+        Gate::policy(\App\Models\Debt::class, \App\Policies\DebtPolicy::class);
+        Gate::policy(\App\Models\Transaction::class, \App\Policies\TransactionPolicy::class);
     }
 }

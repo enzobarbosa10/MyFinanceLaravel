@@ -1,5 +1,6 @@
 @extends('layouts.app')
 @section('title', 'Metas — MyFinance')
+@use(App\Enums\GoalStatus)
 
 @section('content')
 <div class="card">
@@ -25,11 +26,11 @@
                 <span>R$ {{ number_format($goal->current_amount, 2, ',', '.') }}</span>
                 <span style="font-weight:600;">{{ number_format($goal->progressPercentage(), 0) }}%</span>
             </div>
-            @if($goal->status === 'active')
+            @if($goal->status === GoalStatus::Active)
                 <div style="margin-top:0.75rem;display:flex;gap:0.5rem;">
-                    <a href="{{ route('goals.show', ['id' => $goal->id]) }}" class="btn btn-ghost btn-sm">Detalhes</a>
+                    <a href="{{ route('goals.show', $goal) }}" class="btn btn-ghost btn-sm">Detalhes</a>
                 </div>
-            @elseif($goal->status === 'completed')
+            @elseif($goal->status === GoalStatus::Completed)
                 <div style="text-align:center;padding:0.5rem;background:rgba(16,185,129,0.08);border-radius:8px;margin-top:0.5rem;font-weight:600;color:var(--success);">
                     🎉 Concluída!
                 </div>

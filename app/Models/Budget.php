@@ -2,12 +2,14 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Budget extends Model
 {
+    use HasFactory;
     protected $fillable = ['user_id', 'category_id', 'amount', 'month'];
 
     protected $casts = [

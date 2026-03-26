@@ -49,9 +49,13 @@ class InvestmentController extends Controller
         return redirect()->route('investments.index')->with('success', 'Investimento registrado!');
     }
 
-    public function destroy(Request $request)
+    public function destroy(Investment $investment)
     {
-        Investment::where('id', $request->id)->where('user_id', Auth::id())->delete();
+        if ($investment->user_id !== Auth::id()) {
+            abort(403);
+        }
+
+        $investment->delete();
         return redirect()->route('investments.index')->with('success', 'Investimento removido.');
     }
 

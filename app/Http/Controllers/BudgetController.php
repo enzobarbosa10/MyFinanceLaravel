@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers;
 
+use App\Enums\TransactionType;
+use App\Http\Requests\StoreBudgetRequest;
 use App\Models\Budget;
 use App\Models\Category;
 use App\Models\Transaction;
@@ -18,21 +20,23 @@ class BudgetController extends Controller
         $budgets = Budget::with('category')
             ->where('user_id', $userId)
             ->where('month', $month)
-            ->get()
-            ->map(function ($budget) use ($userId, $month) {
-                $spent = Transaction::where('user_id', $userId)
-                    ->where('category_id', $budget->category_id)
-                    ->where('type', 'saida')
-                    ->whereRaw("DATE_FORMAT(transaction_at, '%Y-%m') = ?", [$month])
-                    ->sum('amount');
+            ->get();
 
-                $budget->spent = $spent;
-                $budget->percentage = $budget->amount > 0
-                    ? round(($spent / $budget->amount) * 100, 1)
-                    : 0;
+        // Single query to fetch all spent amounts grouped by category
+        $spentByCategory = Transaction::forUser($userId)
+            ->ofType(TransactionType::Saida)
+            ->forMonth($month)
+            ->whereIn('category_id', $budgets->pluck('category_id'))
+            ->groupBy('category_id')
+            ->selectRaw('category_id, SUM(amount) as total')
+            ->pluck('total', 'category_id');
 
-                return $budget;
-            });
+        $budgets->each(function ($budget) use ($spentByCategory) {
+            $budget->spent = (float) ($spentByCategory[$budget->category_id] ?? 0);
+            $budget->percentage = $budget->amount > 0
+                ? round(($budget->spent / $budget->amount) * 100, 1)
+                : 0;
+        });
 
         return view('budgets.index', compact('budgets', 'month'));
     }
@@ -40,21 +44,15 @@ class BudgetController extends Controller
     public function create()
     {
         $categories = Category::where('user_id', Auth::id())
-            ->where('type', 'saida')
+            ->where('type', TransactionType::Saida)
             ->orderBy('name')
             ->get();
 
         return view('budgets.create', compact('categories'));
     }
 
-    public function store(Request $request)
+    public function store(StoreBudgetRequest $request)
     {
-        $request->validate([
-            'category_id' => 'required|exists:categories,id',
-            'amount' => 'required|numeric|min:0.01',
-            'month' => 'required|regex:/^\d{4}-\d{2}$/',
-        ]);
-
         $userId = Auth::id();
         Category::where('id', $request->category_id)->where('user_id', $userId)->firstOrFail();
 
@@ -70,9 +68,13 @@ class BudgetController extends Controller
         return redirect()->route('budgets.index')->with('success', 'Orçamento salvo!');
     }
 
-    public function destroy(Request $request)
+    public function destroy(Budget $budget)
     {
-        Budget::where('id', $request->id)->where('user_id', Auth::id())->delete();
+        if ($budget->user_id !== Auth::id()) {
+            abort(403);
+        }
+
+        $budget->delete();
         return redirect()->route('budgets.index')->with('success', 'Orçamento removido.');
     }
 }

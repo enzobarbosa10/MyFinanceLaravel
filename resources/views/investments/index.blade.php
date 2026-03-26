@@ -36,9 +36,9 @@
                         <td>R$ {{ number_format($inv->purchase_price, 4, ',', '.') }}</td>
                         <td class="value-neutral">R$ {{ number_format($inv->total_value, 2, ',', '.') }}</td>
                         <td>
-                            <form method="POST" action="{{ route('investments.destroy') }}" onsubmit="return confirm('Remover investimento?')">
+                            <form method="POST" action="{{ route('investments.destroy', $inv) }}" onsubmit="return confirm('Remover investimento?')">
                                 @csrf
-                                <input type="hidden" name="id" value="{{ $inv->id }}">
+                                @method('DELETE')
                                 <button type="submit" class="btn btn-danger btn-sm">✕</button>
                             </form>
                         </td>

@@ -40,9 +40,9 @@
                             </div>
                         </td>
                         <td>
-                            <form method="POST" action="{{ route('budgets.destroy') }}" onsubmit="return confirm('Remover orçamento?')">
+                            <form method="POST" action="{{ route('budgets.destroy', $budget) }}" onsubmit="return confirm('Remover orçamento?')">
                                 @csrf
-                                <input type="hidden" name="id" value="{{ $budget->id }}">
+                                @method('DELETE')
                                 <button type="submit" class="btn btn-danger btn-sm">✕</button>
                             </form>
                         </td>

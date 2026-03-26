@@ -5,8 +5,11 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\Str;
 use App\Models\User;
 use App\Models\Category;
+use App\Models\LoginAttempt;
 
 class AuthController extends Controller
 {
@@ -22,10 +25,30 @@ class AuthController extends Controller
             'password' => 'required',
         ]);
 
-        if (Auth::attempt($request->only('email', 'password'))) {
-            $request->session()->regenerate();
-            return redirect()->intended('/');
+        $throttleKey = Str::lower($request->input('email')) . '|' . $request->ip();
+
+        if (RateLimiter::tooManyAttempts($throttleKey, 6)) {
+            $seconds = RateLimiter::availableIn($throttleKey);
+
+            return back()
+                ->withErrors(['email' => "Muitas tentativas. Tente novamente em {$seconds} segundos."])
+                ->onlyInput('email');
         }
+
+        if (Auth::attempt($request->only('email', 'password'))) {
+            RateLimiter::clear($throttleKey);
+            $request->session()->regenerate();
+            return redirect()->intended('/dashboard');
+        }
+
+        RateLimiter::hit($throttleKey, 60);
+
+        LoginAttempt::create([
+            'email' => $request->input('email'),
+            'ip_address' => $request->ip(),
+            'user_agent' => Str::limit($request->userAgent(), 500),
+            'attempt_time' => now(),
+        ]);
 
         return back()->withErrors(['email' => 'E-mail ou senha inválidos.'])->onlyInput('email');
     }
@@ -57,7 +80,9 @@ class AuthController extends Controller
 
         Category::seedDefaults($user->id);
 
-        return redirect()->route('login')->with('success', 'Cadastro realizado! Faça login.');
+        $user->sendEmailVerificationNotification();
+
+        return redirect()->route('login')->with('success', 'Cadastro realizado! Verifique seu e-mail para ativar a conta.');
     }
 
     public function logout(Request $request)

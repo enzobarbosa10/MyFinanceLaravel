@@ -2,15 +2,19 @@
 
 namespace App\Models;
 
+use App\Enums\GoalStatus;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Goal extends Model
 {
+    use HasFactory;
     protected $fillable = ['user_id', 'name', 'target_amount', 'current_amount', 'deadline', 'icon', 'status'];
 
     protected $casts = [
+        'status' => GoalStatus::class,
         'target_amount' => 'decimal:2',
         'current_amount' => 'decimal:2',
         'deadline' => 'date',

@@ -2,18 +2,28 @@
 
 namespace App\Http\Controllers;
 
+use App\Enums\GoalStatus;
+use App\Http\Requests\StoreGoalRequest;
+use App\Http\Requests\UpdateGoalRequest;
 use App\Models\Goal;
-use App\Models\GoalContribution;
+use App\Services\GoalService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\DB;
 
 class GoalController extends Controller
 {
+    public function __construct(
+        protected GoalService $goalService
+    ) {}
+
     public function index()
     {
         $goals = Goal::where('user_id', Auth::id())
-            ->orderByRaw("FIELD(status, 'active', 'completed', 'cancelled')")
+            ->orderByRaw("FIELD(status, ?, ?, ?)", [
+                GoalStatus::Active->value,
+                GoalStatus::Completed->value,
+                GoalStatus::Cancelled->value,
+            ])
             ->get();
 
         return view('goals.index', compact('goals'));
@@ -24,14 +34,8 @@ class GoalController extends Controller
         return view('goals.create');
     }
 
-    public function store(Request $request)
+    public function store(StoreGoalRequest $request)
     {
-        $request->validate([
-            'name' => 'required|string|max:100',
-            'target_amount' => 'required|numeric|min:1',
-            'deadline' => 'required|date|after:today',
-            'icon' => 'nullable|string|max:10',
-        ]);
 
         Goal::create([
             'user_id' => Auth::id(),
@@ -44,49 +48,53 @@ class GoalController extends Controller
         return redirect()->route('goals.index')->with('success', 'Meta criada!');
     }
 
-    public function show(Request $request)
+    public function show(Goal $goal)
     {
-        $goal = Goal::with('contributions')
-            ->where('id', $request->get('id'))
-            ->where('user_id', Auth::id())
-            ->firstOrFail();
+        $goal->load('contributions');
+        $this->authorize('update', $goal);
 
         return view('goals.show', compact('goal'));
     }
 
-    public function contribute(Request $request)
+    public function contribute(Goal $goal, Request $request)
     {
         $request->validate([
-            'goal_id' => 'required|exists:goals,id',
             'amount' => 'required|numeric|min:0.01',
             'notes' => 'nullable|string|max:255',
         ]);
 
-        $goal = Goal::where('id', $request->goal_id)->where('user_id', Auth::id())->firstOrFail();
+        $this->authorize('update', $goal);
 
-        DB::transaction(function () use ($goal, $request) {
-            GoalContribution::create([
-                'goal_id' => $goal->id,
-                'amount' => $request->amount,
-                'contributed_at' => now()->toDateString(),
-                'notes' => $request->notes,
-            ]);
+        $this->goalService->contribute($goal, (float) $request->amount, $request->notes);
 
-            $goal->increment('current_amount', $request->amount);
-
-            if ($goal->fresh()->current_amount >= $goal->target_amount) {
-                $goal->update(['status' => 'completed']);
-            }
-        });
-
-        return redirect()->route('goals.show', ['id' => $goal->id])->with('success', 'Contribuição registrada!');
+        return redirect()->route('goals.show', $goal)->with('success', 'Contribuição registrada!');
     }
 
-    public function cancel(Request $request)
+    public function cancel(Goal $goal)
     {
-        $goal = Goal::where('id', $request->id)->where('user_id', Auth::id())->firstOrFail();
-        $goal->update(['status' => 'cancelled']);
+        $this->authorize('delete', $goal);
+        $goal->update(['status' => GoalStatus::Cancelled]);
 
         return redirect()->route('goals.index')->with('success', 'Meta cancelada.');
+    }
+
+    public function edit(Goal $goal)
+    {
+        $this->authorize('update', $goal);
+        return view('goals.edit', compact('goal'));
+    }
+
+    public function update(UpdateGoalRequest $request, Goal $goal)
+    {
+        $this->authorize('update', $goal);
+
+        $goal->update([
+            'name' => $request->name,
+            'target_amount' => $request->target_amount,
+            'deadline' => $request->deadline,
+            'icon' => $request->icon ?? $goal->icon,
+        ]);
+
+        return redirect()->route('goals.index')->with('success', 'Meta atualizada!');
     }
 }

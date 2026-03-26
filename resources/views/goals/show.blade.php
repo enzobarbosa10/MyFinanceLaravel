@@ -1,5 +1,6 @@
 @extends('layouts.app')
 @section('title', $goal->name . ' — MyFinance')
+@use(App\Enums\GoalStatus)
 
 @section('content')
 <div class="card">
@@ -7,7 +8,7 @@
     <div class="goal-meta">
         Meta: R$ {{ number_format($goal->target_amount, 2, ',', '.') }}
         · Prazo: {{ $goal->deadline->format('d/m/Y') }}
-        · Status: <strong>{{ ucfirst($goal->status) }}</strong>
+        · Status: <strong>{{ ucfirst($goal->status->value) }}</strong>
     </div>
 
     <div class="progress-bar-container" style="margin:1rem 0 0.5rem;">
@@ -18,18 +19,17 @@
         <span style="font-weight:600;">{{ number_format($goal->progressPercentage(), 0) }}%</span>
     </div>
 
-    @if($goal->status === 'completed')
+    @if($goal->status === GoalStatus::Completed)
         <div style="text-align:center;padding:1rem;margin:1rem 0;background:rgba(16,185,129,0.1);border-radius:8px;font-size:1.25rem;font-weight:700;color:var(--success);">
             🎉 Meta concluída!
         </div>
     @endif
 
-    @if($goal->status === 'active')
+    @if($goal->status === GoalStatus::Active)
         <div style="margin-top:1.5rem;">
             <h3>Adicionar Contribuição</h3>
-            <form method="POST" action="{{ route('goals.contribute') }}" style="display:flex;gap:0.5rem;align-items:end;flex-wrap:wrap;margin-top:0.75rem;">
+            <form method="POST" action="{{ route('goals.contribute', $goal) }}" style="display:flex;gap:0.5rem;align-items:end;flex-wrap:wrap;margin-top:0.75rem;">
                 @csrf
-                <input type="hidden" name="goal_id" value="{{ $goal->id }}">
                 <div>
                     <label for="amount">Valor (R$)</label>
                     <input type="number" id="amount" name="amount" step="0.01" min="0.01" required style="width:150px;">
@@ -43,9 +43,8 @@
         </div>
 
         <div style="margin-top:1rem;">
-            <form method="POST" action="{{ route('goals.cancel') }}" onsubmit="return confirm('Cancelar esta meta?')">
+            <form method="POST" action="{{ route('goals.cancel', $goal) }}" onsubmit="return confirm('Cancelar esta meta?')">
                 @csrf
-                <input type="hidden" name="id" value="{{ $goal->id }}">
                 <button type="submit" class="btn btn-danger btn-sm">Cancelar Meta</button>
             </form>
         </div>

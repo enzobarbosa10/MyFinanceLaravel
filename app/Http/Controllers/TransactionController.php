@@ -2,9 +2,13 @@
 
 namespace App\Http\Controllers;
 
+use App\Enums\TransactionType;
+use App\Http\Requests\StoreTransactionRequest;
 use App\Models\Transaction;
 use App\Models\Category;
 use App\Models\Account;
+use App\Models\Budget;
+use App\Models\BudgetAlert;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 
@@ -19,8 +23,8 @@ class TransactionController extends Controller
             $month = date('Y-m');
         }
 
-        $entradas = Transaction::sumByType($userId, 'entrada', $month);
-        $saidas = Transaction::sumByType($userId, 'saida', $month);
+        $entradas = Transaction::sumByType($userId, TransactionType::Entrada, $month);
+        $saidas = Transaction::sumByType($userId, TransactionType::Saida, $month);
         $saldo = $entradas - $saidas;
         $transactions = Transaction::byMonth($userId, $month);
 
@@ -42,24 +46,15 @@ class TransactionController extends Controller
         return view('transactions.create', compact('accounts', 'categories'));
     }
 
-    public function store(Request $request)
+    public function store(StoreTransactionRequest $request)
     {
-        $request->validate([
-            'account_id' => 'required|exists:accounts,id',
-            'category_id' => 'required|exists:categories,id',
-            'type' => 'required|in:entrada,saida',
-            'amount' => 'required|numeric|min:0.01',
-            'description' => 'nullable|string|max:255',
-            'transaction_at' => 'required|date',
-        ]);
-
         $userId = Auth::id();
 
         // Verify ownership
         $account = Account::where('id', $request->account_id)->where('user_id', $userId)->firstOrFail();
         $category = Category::where('id', $request->category_id)->where('user_id', $userId)->firstOrFail();
 
-        Transaction::createWithBalance([
+        $transaction = Transaction::createWithBalance([
             'user_id' => $userId,
             'account_id' => $request->account_id,
             'category_id' => $request->category_id,
@@ -69,13 +64,85 @@ class TransactionController extends Controller
             'transaction_at' => $request->transaction_at,
         ]);
 
+        // Check budget alerts for "saida" transactions
+        if ($transaction->type === TransactionType::Saida) {
+            $this->checkBudgetAlerts($userId, $transaction->category_id, $transaction->transaction_at->format('Y-m'));
+        }
+
         return redirect()->route('transactions.index')->with('success', 'Transação criada com sucesso!');
     }
 
-    public function destroy(Request $request)
+    protected function checkBudgetAlerts(int $userId, int $categoryId, string $month): void
     {
+        $budget = Budget::where('user_id', $userId)
+            ->where('category_id', $categoryId)
+            ->where('month', $month)
+            ->first();
+
+        if (! $budget || $budget->amount <= 0) {
+            return;
+        }
+
+        $spent = Transaction::forUser($userId)
+            ->ofType(TransactionType::Saida)
+            ->where('category_id', $categoryId)
+            ->forMonth($month)
+            ->sum('amount');
+
+        $percentage = round(($spent / $budget->amount) * 100, 1);
+
+        if ($percentage >= 100) {
+            BudgetAlert::updateOrCreate(
+                ['budget_id' => $budget->id, 'alert_type' => 'exceeded', 'month' => $month],
+                ['user_id' => $userId, 'percentage' => $percentage, 'seen' => false]
+            );
+        }
+
+        if ($percentage >= 80) {
+            BudgetAlert::updateOrCreate(
+                ['budget_id' => $budget->id, 'alert_type' => 'warning', 'month' => $month],
+                ['user_id' => $userId, 'percentage' => $percentage, 'seen' => false]
+            );
+        }
+    }
+
+    public function edit(Transaction $transaction)
+    {
+        $this->authorize('update', $transaction);
         $userId = Auth::id();
-        $transaction = Transaction::where('id', $request->id)->where('user_id', $userId)->firstOrFail();
+        $categories = Category::where('user_id', $userId)->orderBy('type')->orderBy('name')->get();
+        $accounts = Account::where('user_id', $userId)->get();
+        return view('transactions.edit', compact('transaction', 'accounts', 'categories'));
+    }
+
+    public function update(StoreTransactionRequest $request, Transaction $transaction)
+    {
+        $this->authorize('update', $transaction);
+        $userId = Auth::id();
+
+        Account::where('id', $request->account_id)->where('user_id', $userId)->firstOrFail();
+        Category::where('id', $request->category_id)->where('user_id', $userId)->firstOrFail();
+
+        Transaction::updateWithBalance($transaction, [
+            'account_id' => $request->account_id,
+            'category_id' => $request->category_id,
+            'type' => $request->type,
+            'amount' => $request->amount,
+            'description' => $request->description,
+            'transaction_at' => $request->transaction_at,
+        ]);
+
+        // Re-check budget alerts if it's a "saida"
+        if ($transaction->fresh()->type === TransactionType::Saida) {
+            $this->checkBudgetAlerts($userId, $transaction->category_id, $transaction->transaction_at->format('Y-m'));
+        }
+
+        return redirect()->route('transactions.index')->with('success', 'Transação atualizada!');
+    }
+
+    public function destroy(Transaction $transaction)
+    {
+        $this->authorize('delete', $transaction);
 
         Transaction::deleteWithBalance($transaction);
 
@@ -84,8 +151,8 @@ class TransactionController extends Controller
 
     public function categoriesByType(Request $request)
     {
-        $type = $request->get('type');
-        if (!in_array($type, ['entrada', 'saida'])) {
+        $type = TransactionType::tryFrom($request->get('type'));
+        if (!$type) {
             return response()->json([]);
         }
 

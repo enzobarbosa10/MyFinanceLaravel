@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use App\Enums\TransactionType;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Facades\DB;
@@ -15,6 +17,7 @@ class Transaction extends Model
     ];
 
     protected $casts = [
+        'type' => TransactionType::class,
         'amount' => 'decimal:2',
         'transaction_at' => 'datetime',
         'is_recurring' => 'boolean',
@@ -40,12 +43,38 @@ class Transaction extends Model
         return $this->belongsTo(Import::class);
     }
 
+    // ── Query Scopes ─────────────────────────────────────────
+
+    public function scopeForUser(Builder $query, int $userId): Builder
+    {
+        return $query->where('user_id', $userId);
+    }
+
+    public function scopeForMonth(Builder $query, string $month): Builder
+    {
+        [$year, $mon] = explode('-', $month);
+
+        return $query->whereYear('transaction_at', $year)
+                     ->whereMonth('transaction_at', $mon);
+    }
+
+    public function scopeOfType(Builder $query, TransactionType $type): Builder
+    {
+        return $query->where('type', $type);
+    }
+
+    // ── Business Methods ─────────────────────────────────────
+
     public static function createWithBalance(array $data): self
     {
         return DB::transaction(function () use ($data) {
             $transaction = self::create($data);
 
-            $balanceChange = $data['type'] === 'entrada' ? $data['amount'] : -$data['amount'];
+            $type = $data['type'] instanceof TransactionType
+                ? $data['type']
+                : TransactionType::from($data['type']);
+
+            $balanceChange = $type === TransactionType::Entrada ? $data['amount'] : -$data['amount'];
             Account::where('id', $data['account_id'])
                 ->where('user_id', $data['user_id'])
                 ->increment('balance', $balanceChange);
@@ -57,7 +86,7 @@ class Transaction extends Model
     public static function deleteWithBalance(self $transaction): bool
     {
         return DB::transaction(function () use ($transaction) {
-            $balanceRevert = $transaction->type === 'entrada'
+            $balanceRevert = $transaction->type === TransactionType::Entrada
                 ? -$transaction->amount
                 : $transaction->amount;
 
@@ -68,36 +97,68 @@ class Transaction extends Model
         });
     }
 
-    public static function sumByType(int $userId, string $type, ?string $month = null): float
+    public static function updateWithBalance(self $transaction, array $data): self
     {
-        $query = self::where('user_id', $userId)->where('type', $type);
+        return DB::transaction(function () use ($transaction, $data) {
+            // Revert old balance on old account
+            $oldRevert = $transaction->type === TransactionType::Entrada
+                ? -$transaction->amount
+                : $transaction->amount;
+            Account::where('id', $transaction->account_id)
+                ->where('user_id', $transaction->user_id)
+                ->increment('balance', $oldRevert);
+
+            // Update the transaction
+            $transaction->update($data);
+            $transaction->refresh();
+
+            // Apply new balance on (possibly new) account
+            $newChange = $transaction->type === TransactionType::Entrada
+                ? $transaction->amount
+                : -$transaction->amount;
+            Account::where('id', $transaction->account_id)
+                ->where('user_id', $transaction->user_id)
+                ->increment('balance', $newChange);
+
+            return $transaction;
+        });
+    }
+
+    public static function sumByType(int $userId, TransactionType $type, ?string $month = null): float
+    {
+        $query = self::forUser($userId)->ofType($type);
 
         if ($month) {
-            $query->whereRaw("DATE_FORMAT(transaction_at, '%Y-%m') = ?", [$month]);
+            $query->forMonth($month);
         }
 
         return (float) $query->sum('amount');
     }
 
-    public static function byMonth(int $userId, string $month): \Illuminate\Database\Eloquent\Collection
+    public static function byMonth(int $userId, string $month, int $perPage = 25): \Illuminate\Contracts\Pagination\LengthAwarePaginator
     {
         return self::with(['account', 'category'])
-            ->where('user_id', $userId)
-            ->whereRaw("DATE_FORMAT(transaction_at, '%Y-%m') = ?", [$month])
+            ->forUser($userId)
+            ->forMonth($month)
             ->orderByDesc('transaction_at')
             ->orderByDesc('id')
-            ->get();
+            ->paginate($perPage)
+            ->appends(['month' => $month]);
     }
 
     public static function summaryByCategory(int $userId, string $month): array
     {
-        return DB::select("
-            SELECT c.name, c.type, SUM(t.amount) as total
-            FROM transactions t
-            JOIN categories c ON t.category_id = c.id
-            WHERE t.user_id = ? AND DATE_FORMAT(t.transaction_at, '%Y-%m') = ?
-            GROUP BY c.id, c.name, c.type
-            ORDER BY total DESC
-        ", [$userId, $month]);
+        [$year, $mon] = explode('-', $month);
+
+        return self::join('categories as c', 'transactions.category_id', '=', 'c.id')
+            ->where('transactions.user_id', $userId)
+            ->whereYear('transactions.transaction_at', $year)
+            ->whereMonth('transactions.transaction_at', $mon)
+            ->groupBy('c.id', 'c.name', 'c.type')
+            ->orderByDesc('total')
+            ->select('c.name', 'c.type')
+            ->selectRaw('SUM(transactions.amount) as total')
+            ->get()
+            ->toArray();
     }
 }
