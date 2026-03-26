@@ -8,7 +8,27 @@ use App\Http\Controllers\BudgetController;
 use App\Http\Controllers\GoalController;
 use App\Http\Controllers\DebtController;
 use App\Http\Controllers\InvestmentController;
+use App\Http\Controllers\PageController;
+use App\Http\Controllers\BlogController;
+use App\Http\Controllers\ContactController;
 use Illuminate\Support\Facades\Route;
+
+// ─── Institutional / Public Pages ───────────────────────────────────
+Route::get('/', [PageController::class, 'home'])->name('home');
+Route::get('/funcionalidades', [PageController::class, 'features'])->name('features');
+Route::get('/beneficios', [PageController::class, 'benefits'])->name('benefits');
+Route::get('/depoimentos', [PageController::class, 'testimonials'])->name('testimonials');
+Route::get('/sobre', [PageController::class, 'about'])->name('about');
+Route::get('/termos', [PageController::class, 'terms'])->name('terms');
+Route::get('/privacidade', [PageController::class, 'privacy'])->name('privacy');
+
+// Blog
+Route::get('/blog', [BlogController::class, 'index'])->name('blog.index');
+Route::get('/blog/{post}', [BlogController::class, 'show'])->name('blog.show');
+
+// Contact
+Route::get('/contato', [ContactController::class, 'index'])->name('contact');
+Route::post('/contato', [ContactController::class, 'send'])->name('contact.send');
 
 // Auth (guest)
 Route::middleware('guest')->group(function () {
@@ -23,7 +43,7 @@ Route::middleware('auth')->group(function () {
     Route::post('/logout', [AuthController::class, 'logout'])->name('logout');
 
     // Dashboard
-    Route::get('/', [DashboardController::class, 'index'])->name('dashboard');
+    Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
 
     // Accounts
     Route::get('/accounts', [AccountController::class, 'index'])->name('accounts.index');

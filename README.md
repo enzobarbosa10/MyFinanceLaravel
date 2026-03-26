@@ -1,58 +1,89 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# 💰 MyFinanceLaravel
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+Plataforma completa de gestão financeira pessoal construída com **Laravel 13** e **Tailwind CSS**. Controle contas, transações, orçamentos, metas, dívidas e investimentos em um só lugar.
 
-## About Laravel
+## Funcionalidades
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+- **Contas** — Gerencie múltiplas contas bancárias com saldo atualizado automaticamente
+- **Transações** — Registre receitas e despesas com categorização e suporte a recorrência
+- **Orçamentos** — Defina limites mensais por categoria com alertas de proximidade do teto
+- **Metas** — Estabeleça objetivos financeiros com prazo, acompanhamento de contribuições e progresso
+- **Dívidas** — Controle dívidas com taxa de juros, histórico de pagamentos e saldo devedor
+- **Investimentos** — Acompanhe ações, FIIs, renda fixa e criptomoedas (pré-cadastrado com ativos brasileiros)
+- **Importação** — Importe transações de fontes externas
+- **Planos e Assinaturas** — Sistema de planos com limites de funcionalidades por tier
+- **Notificações** — Alertas de orçamento, lembretes de assinatura e avisos financeiros
+- **Onboarding** — Fluxo guiado para novos usuários
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+## Tech Stack
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+| Camada   | Tecnologia                          |
+|----------|-------------------------------------|
+| Backend  | PHP 8.3+ / Laravel 13               |
+| Frontend | Tailwind CSS 4 / Vite 7             |
+| Banco    | SQLite (padrão, configurável)        |
+| Testes   | PHPUnit 11.5                         |
 
-## Learning Laravel
+## Requisitos
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
+- PHP 8.3+
+- Composer
+- Node.js & npm
 
-In addition, [Laracasts](https://laracasts.com) contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
-
-You can also watch bite-sized lessons with real-world projects on [Laravel Learn](https://laravel.com/learn), where you will be guided through building a Laravel application from scratch while learning PHP fundamentals.
-
-## Agentic Development
-
-Laravel's predictable structure and conventions make it ideal for AI coding agents like Claude Code, Cursor, and GitHub Copilot. Install [Laravel Boost](https://laravel.com/docs/ai) to supercharge your AI workflow:
+## Instalação
 
 ```bash
-composer require laravel/boost --dev
-
-php artisan boost:install
+git clone <repo-url> MyFinanceLaravel
+cd MyFinanceLaravel
+composer setup
 ```
 
-Boost provides your agent 15+ tools and skills that help agents build Laravel applications while following best practices.
+O comando `composer setup` executa automaticamente:
 
-## Contributing
+1. `composer install`
+2. Copia `.env.example` → `.env`
+3. Gera a chave da aplicação
+4. Executa as migrations
+5. Instala dependências npm e faz o build
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+## Desenvolvimento
 
-## Code of Conduct
+```bash
+composer dev
+```
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+Inicia simultaneamente o servidor Laravel, fila de jobs, logs e Vite em modo de desenvolvimento.
 
-## Security Vulnerabilities
+## Testes
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+```bash
+composer test
+```
 
-## License
+## Estrutura do Banco de Dados
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+O projeto possui **16 models Eloquent** e **29+ tabelas**, incluindo:
+
+| Modelo             | Finalidade                              |
+|--------------------|-----------------------------------------|
+| User               | Autenticação e relacionamento central   |
+| Account            | Contas bancárias com saldo              |
+| Transaction        | Receitas e despesas                     |
+| Category           | Categorias (entrada/saída)              |
+| Budget / BudgetAlert | Orçamentos mensais e alertas         |
+| Goal / GoalContribution | Metas e contribuições              |
+| Debt / DebtPayment | Dívidas e pagamentos                   |
+| Investment / InvestmentAsset / InvestmentType | Portfólio de investimentos |
+| Import             | Histórico de importações                |
+| Plan / PlanFeature / UserSubscription | Sistema de assinaturas  |
+
+## Ativos Pré-cadastrados (Seeder)
+
+- **Ações**: PETR4, VALE3, ITUB4, BBDC4, BBAS3, ABEV3, MGLU3, WEGE3
+- **FIIs**: HGLG11, XPML11, MXRF11, KNRI11, VISC11
+- **Renda Fixa**: SELIC, IPCA+2029, IPCA+2035, PRE27, CDB, LCI
+- **Criptomoedas**: BTC, ETH, SOL
+
+## Licença
+
+Este projeto é open-source sob a licença [MIT](https://opensource.org/licenses/MIT).
