@@ -4,10 +4,14 @@ use App\Http\Controllers\Api\AiAssistantController;
 use App\Http\Controllers\Api\DashboardApiController;
 use App\Http\Controllers\Api\OpenFinanceController;
 use App\Http\Controllers\Api\PlanController;
+use App\Http\Controllers\Api\PluggyWebhookController;
 use Illuminate\Support\Facades\Route;
 
 // Público — lista de planos
 Route::get('/plans', [PlanController::class, 'index'])->name('api.plans.index');
+
+// Webhook Pluggy (chamado pela Pluggy, sem auth)
+Route::post('/webhooks/pluggy', [PluggyWebhookController::class, 'handle'])->name('api.webhooks.pluggy');
 
 Route::middleware(['auth:sanctum'])->group(function () {
 

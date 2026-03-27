@@ -11,6 +11,7 @@ use App\Http\Controllers\InvestmentController;
 use App\Http\Controllers\PageController;
 use App\Http\Controllers\BlogController;
 use App\Http\Controllers\ContactController;
+use App\Http\Controllers\OpenFinanceController;
 use Illuminate\Foundation\Auth\EmailVerificationRequest;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
@@ -118,4 +119,8 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::delete('/investments/{investment}', [InvestmentController::class, 'destroy'])->name('investments.destroy');
         Route::get('/investments/assets-by-type', [InvestmentController::class, 'assetsByType'])->name('investments.assetsByType');
     });
+
+    // Open Finance
+    Route::get('/open-finance', [OpenFinanceController::class, 'index'])->name('open-finance.index');
+    Route::post('/open-finance/connect-token', [OpenFinanceController::class, 'connectToken'])->name('open-finance.connect-token');
 });

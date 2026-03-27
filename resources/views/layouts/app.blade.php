@@ -41,6 +41,9 @@
         <a class="nav-item {{ str_starts_with($currentPath, 'investments') ? 'active' : '' }}" href="{{ route('investments.index') }}">
             <span class="nav-icon">📈</span> Investimentos
         </a>
+        <a class="nav-item {{ str_starts_with($currentPath, 'open-finance') ? 'active' : '' }}" href="{{ route('open-finance.index') }}">
+            <span class="nav-icon">🏦</span> Open Finance
+        </a>
         <div class="sidebar-spacer"></div>
         <form method="POST" action="{{ route('logout') }}">
             @csrf
