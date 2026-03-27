@@ -11,7 +11,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class Account extends Model
 {
     use HasFactory;
-    protected $fillable = ['user_id', 'name', 'balance', 'type'];
+    protected $fillable = ['user_id', 'name', 'balance', 'type', 'open_finance_id', 'open_finance_item_id'];
 
     protected $casts = [
         'balance' => 'decimal:2',

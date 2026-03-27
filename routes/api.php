@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Api\AiAssistantController;
 use App\Http\Controllers\Api\DashboardApiController;
+use App\Http\Controllers\Api\OpenFinanceController;
 use App\Http\Controllers\Api\PlanController;
 use Illuminate\Support\Facades\Route;
 
@@ -42,4 +43,13 @@ Route::middleware(['auth:sanctum'])->group(function () {
 
     Route::get('/dashboard/insights', [DashboardApiController::class, 'insights'])
         ->name('api.dashboard.insights');
+
+    // ── Open Finance ─────────────────────────────────────────
+    Route::prefix('open-finance')->name('api.open-finance.')->group(function () {
+        Route::post('/connect-token', [OpenFinanceController::class, 'connectToken'])->name('connect-token');
+        Route::get('/connectors', [OpenFinanceController::class, 'connectors'])->name('connectors');
+        Route::post('/on-connect', [OpenFinanceController::class, 'onConnect'])->name('on-connect');
+        Route::post('/sync', [OpenFinanceController::class, 'sync'])->name('sync');
+        Route::post('/disconnect', [OpenFinanceController::class, 'disconnect'])->name('disconnect');
+    });
 });
