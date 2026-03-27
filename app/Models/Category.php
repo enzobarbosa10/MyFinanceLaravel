@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\TransactionType;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -12,6 +13,10 @@ class Category extends Model
 {
     use HasFactory;
     protected $fillable = ['user_id', 'name', 'type'];
+
+    protected $casts = [
+        'type' => TransactionType::class,
+    ];
 
     public function user(): BelongsTo
     {
@@ -26,6 +31,28 @@ class Category extends Model
     public function budgets(): HasMany
     {
         return $this->hasMany(Budget::class);
+    }
+
+    public function subscriptions(): HasMany
+    {
+        return $this->hasMany(Subscription::class);
+    }
+
+    public function installments(): HasMany
+    {
+        return $this->hasMany(Installment::class);
+    }
+
+    // ── Scopes ───────────────────────────────────────────────
+
+    public function scopeEntrada(Builder $query): Builder
+    {
+        return $query->where('type', TransactionType::Entrada);
+    }
+
+    public function scopeSaida(Builder $query): Builder
+    {
+        return $query->where('type', TransactionType::Saida);
     }
 
     public static function seedDefaults(int $userId): void

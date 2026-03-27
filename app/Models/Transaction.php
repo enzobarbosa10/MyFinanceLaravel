@@ -6,6 +6,7 @@ use App\Enums\TransactionType;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Support\Facades\DB;
 
 class Transaction extends Model
@@ -43,7 +44,27 @@ class Transaction extends Model
         return $this->belongsTo(Import::class);
     }
 
+    public function installmentItem(): HasOne
+    {
+        return $this->hasOne(InstallmentItem::class);
+    }
+
     // ── Query Scopes ─────────────────────────────────────────
+
+    public function scopeEntrada(Builder $query): Builder
+    {
+        return $query->where('type', TransactionType::Entrada);
+    }
+
+    public function scopeSaida(Builder $query): Builder
+    {
+        return $query->where('type', TransactionType::Saida);
+    }
+
+    public function scopeRecurring(Builder $query): Builder
+    {
+        return $query->where('is_recurring', true);
+    }
 
     public function scopeForUser(Builder $query, int $userId): Builder
     {

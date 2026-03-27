@@ -26,7 +26,11 @@ class GoalController extends Controller
             ])
             ->get();
 
-        return view('goals.index', compact('goals'));
+        $analyses = $goals->mapWithKeys(fn (Goal $goal) => [
+            $goal->id => $this->goalService->getAnalysis($goal),
+        ]);
+
+        return view('goals.index', compact('goals', 'analyses'));
     }
 
     public function create()
@@ -53,7 +57,10 @@ class GoalController extends Controller
         $goal->load('contributions');
         $this->authorize('update', $goal);
 
-        return view('goals.show', compact('goal'));
+        $analysis = $this->goalService->getAnalysis($goal);
+        $estimatedDate = $this->goalService->estimatedCompletionDate($goal);
+
+        return view('goals.show', compact('goal', 'analysis', 'estimatedDate'));
     }
 
     public function contribute(Goal $goal, Request $request)

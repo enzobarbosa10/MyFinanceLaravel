@@ -12,7 +12,7 @@ class CheckSubscription
     {
         $user = $request->user();
 
-        if (! $user || ! $user->subscription) {
+        if (! $user || ! $user->userSubscription) {
             return redirect()->route('planos')
                 ->with('error', 'Você precisa de um plano ativo para acessar esta funcionalidade.');
         }
