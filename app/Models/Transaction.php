@@ -15,7 +15,6 @@ class Transaction extends Model
         'user_id', 'account_id', 'category_id', 'type', 'amount',
         'description', 'transaction_at', 'source', 'raw_description',
         'confidence_score', 'import_id', 'is_recurring', 'open_finance_id',
-        'date',
     ];
 
     protected $casts = [

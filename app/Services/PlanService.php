@@ -3,51 +3,95 @@
 namespace App\Services;
 
 use App\Contracts\PaymentGatewayInterface;
+use App\Events\PaymentConfirmed;
+use App\Events\SubscriptionCreated;
+use App\Exceptions\InvalidSubscriptionTransitionException;
+use App\Exceptions\PaymentWebhookException;
+use App\Exceptions\PaymentGatewayUnavailableException;
+use App\Exceptions\PlanConfigurationException;
 use App\Models\Payment;
 use App\Models\Plan;
+use App\Models\ProcessedEvent;
+use App\Models\SubscriptionLog;
 use App\Models\User;
 use App\Models\UserSubscription;
+use App\Services\OperationalAlertService;
+use App\Services\Payments\SubscriptionTelemetryService;
+use Illuminate\Database\QueryException;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use InvalidArgumentException;
+use Throwable;
 
 class PlanService
 {
+    public function __construct(
+        private readonly SubscriptionTelemetryService $telemetry,
+        private readonly OperationalAlertService $alertService,
+    ) {}
+
     /**
      * Inscreve o usuário em um plano.
      */
     public function subscribe(User $user, Plan $plan, ?PaymentGatewayInterface $gateway = null): UserSubscription
     {
         return DB::transaction(function () use ($user, $plan, $gateway) {
-            // Cancela assinatura ativa anterior
-            $this->cancelCurrentSubscription($user, 'upgrade');
+            $current = $this->lockCurrentOpenSubscription($user);
+            $this->cancelLockedSubscription($current);
 
             $isFree = $plan->price <= 0;
-            $hasTrial = $plan->trial_days > 0 && ! $this->hadTrialBefore($user);
+            $hasTrial = $plan->trial_days > 0 && ! $user->had_trial;
+            $requiresPayment = ! $isFree && ! $hasTrial;
+
+            $this->assertGatewayForPaidPlan($requiresPayment, $gateway, 'Gateway é obrigatório para planos pagos sem trial.');
+
+            $status = $this->resolveSubscriptionStatus($hasTrial, $requiresPayment);
+
+            $gatewaySubscription = $requiresPayment
+                ? $this->runGatewayCall(fn () => $gateway->createSubscription($user, $plan), $gateway->name(), 'create_subscription')
+                : null;
 
             $subscription = UserSubscription::create([
                 'user_id' => $user->id,
                 'plan_id' => $plan->id,
-                'status' => $hasTrial ? 'trialing' : 'active',
+                'status' => $status,
                 'trial_ends_at' => $hasTrial ? now()->addDays($plan->trial_days) : null,
                 'starts_at' => now(),
                 'expires_at' => $this->calculateExpiry($plan),
                 'gateway' => $gateway?->name(),
-                'gateway_subscription_id' => null,
+                'gateway_subscription_id' => $gatewaySubscription['id'] ?? null,
             ]);
 
-            // Registra no histórico
+            if ($hasTrial) {
+                $user->forceFill(['had_trial' => true])->save();
+            }
+
             DB::table('subscription_history')->insert([
                 'user_id' => $user->id,
-                'from_plan_id' => null,
+                'from_plan_id' => $current?->plan_id,
                 'to_plan_id' => $plan->id,
                 'action' => 'subscribe',
                 'created_at' => now(),
                 'updated_at' => now(),
             ]);
 
-            // Processa pagamento se plano pago e não é trial
-            if (! $isFree && ! $hasTrial && $gateway) {
+            if ($requiresPayment) {
                 $this->processPayment($user, $subscription, $plan, $gateway);
             }
+
+            SubscriptionCreated::dispatch($subscription);
+            $this->telemetry->increment('subscriptions_created_total');
+            $this->logFinancialEvent('subscription.created', $user, $subscription, [
+                'plan_slug' => $plan->slug,
+                'requires_payment' => $requiresPayment,
+                'status_before' => $current?->status,
+                'status_after' => $subscription->status,
+            ]);
+            $this->writeSubscriptionAudit($subscription, 'created', [
+                'plan_slug' => $plan->slug,
+                'requires_payment' => $requiresPayment,
+            ]);
 
             return $subscription;
         });
@@ -58,19 +102,27 @@ class PlanService
      */
     public function changePlan(User $user, Plan $newPlan, ?PaymentGatewayInterface $gateway = null): UserSubscription
     {
-        $currentPlan = $user->currentPlan();
-        $action = $this->determineAction($currentPlan, $newPlan);
+        return DB::transaction(function () use ($user, $newPlan, $gateway) {
+            $current = $this->lockCurrentOpenSubscription($user);
+            $currentPlan = $current?->plan;
+            $action = $this->determineAction($currentPlan, $newPlan);
+            $this->cancelLockedSubscription($current);
 
-        return DB::transaction(function () use ($user, $newPlan, $gateway, $currentPlan, $action) {
-            $this->cancelCurrentSubscription($user, $action);
+            $requiresPayment = $newPlan->price > 0;
+            $this->assertGatewayForPaidPlan($requiresPayment, $gateway, 'Gateway é obrigatório para upgrade/downgrade para plano pago.');
+
+            $gatewaySubscription = $requiresPayment
+                ? $this->runGatewayCall(fn () => $gateway->createSubscription($user, $newPlan), $gateway->name(), 'create_subscription')
+                : null;
 
             $subscription = UserSubscription::create([
                 'user_id' => $user->id,
                 'plan_id' => $newPlan->id,
-                'status' => 'active',
+                'status' => $requiresPayment ? UserSubscription::STATUS_PENDING : UserSubscription::STATUS_ACTIVE,
                 'starts_at' => now(),
                 'expires_at' => $this->calculateExpiry($newPlan),
                 'gateway' => $gateway?->name(),
+                'gateway_subscription_id' => $gatewaySubscription['id'] ?? null,
             ]);
 
             DB::table('subscription_history')->insert([
@@ -82,9 +134,24 @@ class PlanService
                 'updated_at' => now(),
             ]);
 
-            if ($newPlan->price > 0 && $gateway) {
+            if ($requiresPayment) {
                 $this->processPayment($user, $subscription, $newPlan, $gateway);
             }
+
+            SubscriptionCreated::dispatch($subscription);
+            $this->telemetry->increment('subscriptions_created_total');
+            $this->logFinancialEvent('subscription.changed', $user, $subscription, [
+                'action' => $action,
+                'from_plan' => $currentPlan?->slug,
+                'to_plan' => $newPlan->slug,
+                'status_before' => $current?->status,
+                'status_after' => $subscription->status,
+            ]);
+            $this->writeSubscriptionAudit($subscription, 'changed', [
+                'action' => $action,
+                'from_plan' => $currentPlan?->slug,
+                'to_plan' => $newPlan->slug,
+            ]);
 
             return $subscription;
         });
@@ -95,26 +162,126 @@ class PlanService
      */
     public function cancel(User $user): bool
     {
-        $sub = $user->userSubscription;
-        if (! $sub) {
-            return false;
+        return DB::transaction(function () use ($user) {
+            $sub = $this->lockCurrentOpenSubscription($user);
+            if (! $sub) {
+                return false;
+            }
+
+            $sub->update([
+                'status' => UserSubscription::STATUS_CANCELED,
+                'canceled_at' => now(),
+            ]);
+
+            DB::table('subscription_history')->insert([
+                'user_id' => $user->id,
+                'from_plan_id' => $sub->plan_id,
+                'to_plan_id' => $sub->plan_id,
+                'action' => 'cancel',
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+
+            $this->logFinancialEvent('subscription.canceled', $user, $sub);
+            $this->writeSubscriptionAudit($sub, 'canceled', []);
+
+            return true;
+        });
+    }
+
+    public function current(User $user): ?UserSubscription
+    {
+        return UserSubscription::query()
+            ->where('user_id', $user->id)
+            ->whereIn('status', UserSubscription::OPEN_STATUSES)
+            ->latest('id')
+            ->first();
+    }
+
+    public function handlePaymentWebhook(PaymentGatewayInterface $gateway, array $payload): void
+    {
+        $normalized = $gateway->handleWebhook($payload);
+        $eventId = $normalized['event_id'] ?? hash('sha256', json_encode($payload));
+        $eventType = $normalized['event_type'] ?? $normalized['event'] ?? 'unknown';
+
+        if (! $this->registerProcessedEvent($gateway->name(), (string) $eventId, (string) $eventType, $payload)) {
+            Log::info('payment.webhook.duplicate_event', [
+                'gateway' => $gateway->name(),
+                'event_id' => $eventId,
+                'event_type' => $eventType,
+            ]);
+            return;
         }
 
-        $sub->update([
-            'status' => 'canceled',
-            'canceled_at' => now(),
-        ]);
+        $subscriptionId = $normalized['subscription_id'] ?? null;
+        if (! $subscriptionId) {
+            throw new PaymentWebhookException('Webhook sem subscription_id.');
+        }
 
-        DB::table('subscription_history')->insert([
-            'user_id' => $user->id,
-            'from_plan_id' => $sub->plan_id,
-            'to_plan_id' => $sub->plan_id,
-            'action' => 'cancel',
-            'created_at' => now(),
-            'updated_at' => now(),
-        ]);
+        DB::transaction(function () use ($subscriptionId, $normalized, $gateway, $eventId, $eventType) {
+            $subscription = UserSubscription::where('gateway_subscription_id', $subscriptionId)
+                ->lockForUpdate()
+                ->first();
 
-        return true;
+            if (! $subscription) {
+                Log::warning('payment.webhook.subscription_not_found', [
+                    'gateway' => $gateway->name(),
+                    'subscription_id' => $subscriptionId,
+                    'event_type' => $eventType,
+                ]);
+                return;
+            }
+
+            $statusBefore = $subscription->status;
+            $this->applyWebhookEvent($subscription, $normalized);
+            $statusAfter = $subscription->status;
+
+            $payment = Payment::query()
+                ->where('user_subscription_id', $subscription->id)
+                ->latest('id')
+                ->first();
+
+            if ($payment && ($normalized['event'] ?? '') === 'payment_success') {
+                $payment->update([
+                    'status' => Payment::STATUS_PAID,
+                    'paid_at' => now(),
+                    'gateway_payment_id' => $normalized['payment_id'] ?? $payment->gateway_payment_id,
+                    'gateway_response' => $normalized,
+                ]);
+
+                PaymentConfirmed::dispatch($payment);
+                $this->telemetry->increment('payments_confirmed_total');
+            }
+
+            if ($payment && ($normalized['event'] ?? '') === 'payment_failed') {
+                $payment->update([
+                    'status' => Payment::STATUS_FAILED,
+                    'gateway_response' => $normalized,
+                ]);
+                $this->telemetry->increment('payments_failed_total');
+                $this->alertService->alertPaymentFailure([
+                    'gateway' => $gateway->name(),
+                    'subscription_id' => $subscription->id,
+                    'payment_id' => $payment->id,
+                ]);
+            }
+
+            $this->logFinancialEvent('payment.webhook.processed', $subscription->user, $subscription, [
+                'gateway' => $gateway->name(),
+                'event_type' => $eventType,
+                'gateway_payment_id' => $normalized['payment_id'] ?? null,
+                'status_before' => $statusBefore,
+                'status_after' => $statusAfter,
+            ]);
+            $this->writeSubscriptionAudit($subscription, 'webhook_'.$eventType, [
+                'gateway' => $gateway->name(),
+                'event_id' => $eventId,
+                'event_type' => $eventType,
+                'status_before' => $statusBefore,
+                'status_after' => $statusAfter,
+                'payload' => $normalized,
+            ]);
+        });
     }
 
     /**
@@ -125,7 +292,7 @@ class PlanService
         $free = Plan::free();
 
         if (! $free) {
-            throw new \RuntimeException('Plano Free não encontrado. Execute o seeder.');
+            throw new PlanConfigurationException('Plano Free não encontrado. Execute o seeder.');
         }
 
         return $this->subscribe($user, $free);
@@ -163,22 +330,26 @@ class PlanService
 
     // ─── Private ─────────────────────────────────────────────
 
-    private function cancelCurrentSubscription(User $user, string $action): void
+    private function lockCurrentOpenSubscription(User $user): ?UserSubscription
     {
-        $sub = $user->userSubscription;
-        if ($sub && $sub->isActive()) {
-            $sub->update([
-                'status' => 'canceled',
-                'canceled_at' => now(),
-            ]);
-        }
+        return UserSubscription::query()
+            ->where('user_id', $user->id)
+            ->whereIn('status', UserSubscription::OPEN_STATUSES)
+            ->latest('id')
+            ->lockForUpdate()
+            ->first();
     }
 
-    private function hadTrialBefore(User $user): bool
+    private function cancelLockedSubscription(?UserSubscription $subscription): void
     {
-        return UserSubscription::where('user_id', $user->id)
-            ->where('status', 'trialing')
-            ->exists();
+        if (! $subscription) {
+            return;
+        }
+
+        $subscription->update([
+            'status' => UserSubscription::STATUS_CANCELED,
+            'canceled_at' => now(),
+        ]);
     }
 
     private function calculateExpiry(Plan $plan): ?\DateTimeInterface
@@ -206,7 +377,7 @@ class PlanService
         Plan $plan,
         PaymentGatewayInterface $gateway,
     ): Payment {
-        $result = $gateway->charge($user, $plan);
+        $result = $this->runGatewayCall(fn () => $gateway->charge($user, $plan), $gateway->name(), 'charge');
 
         return Payment::create([
             'user_id' => $user->id,
@@ -215,9 +386,200 @@ class PlanService
             'gateway_payment_id' => $result['id'] ?? null,
             'amount' => $plan->price,
             'currency' => 'BRL',
-            'status' => $result['status'] ?? 'pending',
+            'status' => Payment::STATUS_PENDING,
             'gateway_response' => $result,
-            'paid_at' => ($result['status'] ?? '') === 'paid' ? now() : null,
+            'paid_at' => null,
+        ]);
+    }
+
+    private function resolveSubscriptionStatus(bool $hasTrial, bool $requiresPayment): string
+    {
+        if ($hasTrial) {
+            return UserSubscription::STATUS_TRIALING;
+        }
+
+        if ($requiresPayment) {
+            return UserSubscription::STATUS_PENDING;
+        }
+
+        return UserSubscription::STATUS_ACTIVE;
+    }
+
+    private function assertGatewayForPaidPlan(bool $requiresPayment, ?PaymentGatewayInterface $gateway, string $message): void
+    {
+        if ($requiresPayment && ! $gateway) {
+            throw new InvalidArgumentException($message);
+        }
+    }
+
+    private function runGatewayCall(callable $callback, string $gateway, string $operation): array
+    {
+        $this->ensureCircuitIsClosed($gateway);
+
+        $attempts = (int) config('subscriptions.gateway.retry.attempts', 3);
+        $baseDelayMs = (int) config('subscriptions.gateway.retry.base_delay_ms', 200);
+        $timeoutSeconds = (int) config('subscriptions.gateway.timeout_seconds', 10);
+        $lastException = null;
+
+        for ($attempt = 1; $attempt <= $attempts; $attempt++) {
+            $startedAt = microtime(true);
+
+            try {
+                $result = $callback();
+                $elapsedSeconds = microtime(true) - $startedAt;
+
+                if ($elapsedSeconds > $timeoutSeconds) {
+                    throw new PaymentGatewayUnavailableException("Timeout ao executar {$operation} no gateway {$gateway}.");
+                }
+
+                $this->resetCircuit($gateway);
+
+                return $result;
+            } catch (Throwable $e) {
+                $lastException = $e;
+                $this->registerCircuitFailure($gateway);
+
+                if ($attempt === $attempts) {
+                    break;
+                }
+
+                $delayMs = $baseDelayMs * (2 ** ($attempt - 1));
+                usleep($delayMs * 1000);
+            }
+        }
+
+        throw new PaymentGatewayUnavailableException(
+            "Falha ao executar {$operation} no gateway {$gateway} após {$attempts} tentativas.",
+            0,
+            $lastException,
+        );
+    }
+
+    private function ensureCircuitIsClosed(string $gateway): void
+    {
+        $openUntil = Cache::get($this->circuitOpenUntilCacheKey($gateway));
+
+        if (! $openUntil) {
+            return;
+        }
+
+        if (now()->lt($openUntil)) {
+            $this->alertService->alertCircuitBreakerOpen($gateway, ['open_until' => $openUntil]);
+            throw new PaymentGatewayUnavailableException("Circuit breaker aberto para gateway {$gateway}.");
+        }
+
+        $this->resetCircuit($gateway);
+    }
+
+    private function registerCircuitFailure(string $gateway): void
+    {
+        $failures = Cache::increment($this->circuitFailureCountCacheKey($gateway));
+        $threshold = (int) config('subscriptions.gateway.circuit_breaker.failure_threshold', 5);
+
+        if ($failures < $threshold) {
+            return;
+        }
+
+        $cooldown = (int) config('subscriptions.gateway.circuit_breaker.cooldown_seconds', 60);
+        Cache::put($this->circuitOpenUntilCacheKey($gateway), now()->addSeconds($cooldown), now()->addSeconds($cooldown));
+        $this->alertService->alertCircuitBreakerOpen($gateway, ['cooldown_seconds' => $cooldown]);
+    }
+
+    private function resetCircuit(string $gateway): void
+    {
+        Cache::forget($this->circuitFailureCountCacheKey($gateway));
+        Cache::forget($this->circuitOpenUntilCacheKey($gateway));
+    }
+
+    private function circuitFailureCountCacheKey(string $gateway): string
+    {
+        return 'payment:circuit:'.$gateway.':failures';
+    }
+
+    private function circuitOpenUntilCacheKey(string $gateway): string
+    {
+        return 'payment:circuit:'.$gateway.':open_until';
+    }
+
+    private function logFinancialEvent(string $event, User $user, UserSubscription $subscription, array $context = []): void
+    {
+        Log::info($event, array_merge([
+            'user_id' => $user->id,
+            'subscription_id' => $subscription->id,
+            'gateway' => $subscription->gateway,
+            'event_type' => $event,
+            'plan_id' => $subscription->plan_id,
+            'status' => $subscription->status,
+        ], $context));
+    }
+
+    private function registerProcessedEvent(string $gateway, string $eventId, string $eventType, array $payload): bool
+    {
+        try {
+            ProcessedEvent::create([
+                'gateway' => $gateway,
+                'event_id' => $eventId,
+                'event_type' => $eventType,
+                'payload' => $payload,
+                'processed_at' => now(),
+            ]);
+
+            return true;
+        } catch (QueryException $e) {
+            if (($e->errorInfo[0] ?? null) === '23000') {
+                return false;
+            }
+
+            throw $e;
+        }
+    }
+
+    private function applyWebhookEvent(UserSubscription $subscription, array $normalized): void
+    {
+        $event = $normalized['event'] ?? '';
+
+        if ($event === 'payment_success') {
+            $this->transitionSubscriptionStatus($subscription, UserSubscription::STATUS_ACTIVE);
+            return;
+        }
+
+        if ($event === 'payment_failed') {
+            $this->transitionSubscriptionStatus($subscription, UserSubscription::STATUS_PAST_DUE);
+            return;
+        }
+
+        if ($event === 'subscription_canceled') {
+            $this->transitionSubscriptionStatus($subscription, UserSubscription::STATUS_CANCELED);
+        }
+    }
+
+    private function transitionSubscriptionStatus(UserSubscription $subscription, string $nextStatus): void
+    {
+        if ($subscription->status === $nextStatus) {
+            return;
+        }
+
+        if (! $subscription->canTransitionTo($nextStatus)) {
+            throw new InvalidSubscriptionTransitionException(
+                "Transição inválida de {$subscription->status} para {$nextStatus}."
+            );
+        }
+
+        $subscription->update([
+            'status' => $nextStatus,
+            'canceled_at' => $nextStatus === UserSubscription::STATUS_CANCELED ? now() : $subscription->canceled_at,
+        ]);
+    }
+
+    private function writeSubscriptionAudit(UserSubscription $subscription, string $action, array $payload): void
+    {
+        SubscriptionLog::create([
+            'subscription_id' => $subscription->id,
+            'user_id' => $subscription->user_id,
+            'action' => $action,
+            'gateway' => $subscription->gateway,
+            'payload' => $payload,
+            'logged_at' => now(),
         ]);
     }
 }

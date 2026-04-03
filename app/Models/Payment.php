@@ -7,6 +7,11 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class Payment extends Model
 {
+    public const STATUS_PENDING = 'pending';
+    public const STATUS_PAID = 'paid';
+    public const STATUS_FAILED = 'failed';
+    public const STATUS_REFUNDED = 'refunded';
+
     protected $fillable = [
         'user_id', 'user_subscription_id', 'gateway', 'gateway_payment_id',
         'amount', 'currency', 'status', 'gateway_response', 'paid_at',
@@ -30,6 +35,6 @@ class Payment extends Model
 
     public function isPaid(): bool
     {
-        return $this->status === 'paid';
+        return $this->status === self::STATUS_PAID;
     }
 }

@@ -3,9 +3,9 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Jobs\SyncOpenFinanceData;
 use App\Models\User;
 use App\Services\OpenFinanceService;
-use App\Services\TransactionCategorizationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -14,7 +14,6 @@ class PluggyWebhookController extends Controller
 {
     public function __construct(
         private OpenFinanceService $openFinance,
-        private TransactionCategorizationService $categorization,
     ) {}
 
     public function handle(Request $request): JsonResponse
@@ -40,13 +39,13 @@ class PluggyWebhookController extends Controller
     private function handleItemCreated(string $itemId): void
     {
         Log::info("Pluggy: item criado — {$itemId}");
-        $this->syncItem($itemId);
+        $this->dispatchSync($itemId);
     }
 
     private function handleItemUpdated(string $itemId): void
     {
         Log::info("Pluggy: item atualizado — {$itemId}");
-        $this->syncItem($itemId);
+        $this->dispatchSync($itemId);
     }
 
     private function handleItemError(string $itemId, ?array $error): void
@@ -54,9 +53,15 @@ class PluggyWebhookController extends Controller
         Log::error("Pluggy: erro no item {$itemId}", ['error' => $error]);
     }
 
-    private function syncItem(string $itemId): void
+    private function dispatchSync(string $itemId): void
     {
-        $item = $this->openFinance->getItem($itemId);
+        try {
+            $item = $this->openFinance->getItem($itemId);
+        } catch (\Throwable $e) {
+            Log::error("Pluggy webhook: falha ao buscar item {$itemId}", ['error' => $e->getMessage()]);
+            return;
+        }
+
         $clientUserId = $item['clientUserId'] ?? null;
 
         if (!$clientUserId) {
@@ -71,14 +76,8 @@ class PluggyWebhookController extends Controller
             return;
         }
 
-        $this->openFinance->syncAccounts($user, $itemId);
+        SyncOpenFinanceData::dispatch($user, $itemId);
 
-        $from = now()->subMonths(3)->toDateString();
-        $to   = now()->toDateString();
-        $this->openFinance->syncTransactions($user, $itemId, $from, $to);
-
-        $this->categorization->categorizeUncategorized($user);
-
-        Log::info("Pluggy webhook: dados sincronizados para user {$user->id}");
+        Log::info("Pluggy webhook: sync job despachado para user {$user->id}");
     }
 }

@@ -8,13 +8,14 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Laravel\Sanctum\HasApiTokens;
 
 class User extends Authenticatable implements MustVerifyEmail
 {
     /** @use HasFactory<\Database\Factories\UserFactory> */
-    use HasFactory, Notifiable;
+    use HasApiTokens, HasFactory, Notifiable;
 
-    protected $fillable = ['name', 'email', 'password'];
+    protected $fillable = ['name', 'email', 'password', 'had_trial', 'is_admin'];
 
     protected $hidden = ['password', 'remember_token'];
 
@@ -23,6 +24,8 @@ class User extends Authenticatable implements MustVerifyEmail
         return [
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
+            'had_trial' => 'boolean',
+            'is_admin' => 'boolean',
         ];
     }
 
@@ -86,6 +89,11 @@ class User extends Authenticatable implements MustVerifyEmail
         return $this->hasMany(Notification::class);
     }
 
+    public function featureUsages(): HasMany
+    {
+        return $this->hasMany(FeatureUsage::class);
+    }
+
     public function notificationPreferences(): HasMany
     {
         return $this->hasMany(NotificationPreference::class);
@@ -94,6 +102,13 @@ class User extends Authenticatable implements MustVerifyEmail
     public function userSubscription(): HasOne
     {
         return $this->hasOne(UserSubscription::class)->whereIn('status', ['active', 'trialing'])->latest();
+    }
+
+    public function currentOpenSubscription(): HasOne
+    {
+        return $this->hasOne(UserSubscription::class)
+            ->whereIn('status', UserSubscription::OPEN_STATUSES)
+            ->latest();
     }
 
     public function subscriptionHistory(): HasMany

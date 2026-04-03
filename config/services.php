@@ -53,9 +53,16 @@ return [
     ],
 
     'pluggy' => [
-        'client_id'     => env('PLUGGY_CLIENT_ID'),
-        'client_secret' => env('PLUGGY_CLIENT_SECRET'),
-        'base_url'      => env('PLUGGY_BASE_URL', 'https://api.pluggy.ai'),
+        'client_id'      => env('PLUGGY_CLIENT_ID'),
+        'client_secret'  => env('PLUGGY_CLIENT_SECRET'),
+        'base_url'       => env('PLUGGY_BASE_URL', 'https://api.pluggy.ai'),
+        'webhook_secret' => env('PLUGGY_WEBHOOK_SECRET'),
+    ],
+
+    'operations' => [
+        'alert_email' => env('OPERATIONS_ALERT_EMAIL', env('MAIL_FROM_ADDRESS')),
+        'webhook_failure_threshold' => (float) env('WEBHOOK_FAILURE_THRESHOLD', 5.0),
+        'slack_webhook_url' => env('OPERATIONS_SLACK_WEBHOOK_URL'),
     ],
 
 ];

@@ -69,24 +69,32 @@ class StripeGateway implements PaymentGatewayInterface
         return match ($type) {
             'invoice.paid' => [
                 'event' => 'payment_success',
+                'event_id' => $payload['id'] ?? null,
+                'event_type' => $type,
                 'subscription_id' => $payload['data']['object']['subscription'] ?? null,
                 'payment_id' => $payload['data']['object']['payment_intent'] ?? null,
                 'status' => 'paid',
             ],
             'invoice.payment_failed' => [
                 'event' => 'payment_failed',
+                'event_id' => $payload['id'] ?? null,
+                'event_type' => $type,
                 'subscription_id' => $payload['data']['object']['subscription'] ?? null,
                 'payment_id' => null,
                 'status' => 'failed',
             ],
             'customer.subscription.deleted' => [
                 'event' => 'subscription_canceled',
+                'event_id' => $payload['id'] ?? null,
+                'event_type' => $type,
                 'subscription_id' => $payload['data']['object']['id'] ?? null,
                 'payment_id' => null,
                 'status' => 'canceled',
             ],
             default => [
                 'event' => $type,
+                'event_id' => $payload['id'] ?? null,
+                'event_type' => $type,
                 'subscription_id' => null,
                 'payment_id' => null,
                 'status' => 'unknown',

@@ -25,6 +25,11 @@ class Plan extends Model
         return $this->hasMany(UserSubscription::class);
     }
 
+    public function featureUsages(): HasMany
+    {
+        return $this->hasMany(FeatureUsage::class);
+    }
+
     public function hasFeature(string $feature): bool
     {
         $pf = $this->features()->where('feature', $feature)->first();

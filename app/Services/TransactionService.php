@@ -15,6 +15,7 @@ class TransactionService
     public function __construct(
         protected TransactionCategorizationService $categorizationService,
         protected FinancialNotificationService $notificationService,
+        protected UsageTrackingService $usageTrackingService,
     ) {}
 
     /**
@@ -82,6 +83,7 @@ class TransactionService
         // Financial notification checks
         $this->notificationService->checkUnusualSpending($transaction);
         $this->notificationService->checkLowBalance($transaction->account);
+        $this->usageTrackingService->record($transaction->user, 'transactions_per_month');
 
         return $transaction;
     }

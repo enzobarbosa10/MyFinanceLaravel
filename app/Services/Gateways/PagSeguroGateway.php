@@ -66,12 +66,16 @@ class PagSeguroGateway implements PaymentGatewayInterface
         return match ($type) {
             'transaction' => [
                 'event' => 'payment_update',
+                'event_id' => $payload['notificationCode'] ?? null,
+                'event_type' => $type,
                 'subscription_id' => $payload['preApprovalCode'] ?? null,
                 'payment_id' => $payload['notificationCode'] ?? null,
                 'status' => $this->mapPagSeguroStatus($payload['status'] ?? 0),
             ],
             default => [
                 'event' => $type,
+                'event_id' => $payload['notificationCode'] ?? null,
+                'event_type' => $type,
                 'subscription_id' => null,
                 'payment_id' => null,
                 'status' => 'unknown',

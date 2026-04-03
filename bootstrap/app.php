@@ -16,6 +16,14 @@ return Application::configure(basePath: dirname(__DIR__))
             'subscription' => \App\Http\Middleware\CheckSubscription::class,
             'plan.feature' => \App\Http\Middleware\CheckPlanFeature::class,
             'plan.level' => \App\Http\Middleware\CheckPlanLevel::class,
+            'idempotency' => \App\Http\Middleware\EnsureIdempotency::class,
+            'payment.webhook.signature' => \App\Http\Middleware\VerifyPaymentWebhookSignature::class,
+            'admin.access' => \App\Http\Middleware\EnsureAdminAccess::class,
+            'usage.limit' => \App\Http\Middleware\CheckUsageLimit::class,
+            'checkFeatureAccess' => \App\Http\Middleware\CheckPlanFeature::class,
+            'checkUsageLimit' => \App\Http\Middleware\CheckUsageLimit::class,
+            'intelligent.paywall' => \App\Http\Middleware\IntelligentPaywall::class,
+            'pluggy.webhook.signature' => \App\Http\Middleware\VerifyPluggyWebhookSignature::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

@@ -6,6 +6,14 @@
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>@yield('title', 'MyFinance')</title>
     <link rel="stylesheet" href="{{ asset('css/app.css') }}">
+    <script>
+        (function () {
+            var savedTheme = localStorage.getItem('theme');
+            var prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+            var initialTheme = savedTheme || (prefersDark ? 'dark' : 'light');
+            document.documentElement.setAttribute('data-theme', initialTheme);
+        })();
+    </script>
 </head>
 <body>
     @php
@@ -64,6 +72,11 @@
         <span></span><span></span><span></span>
     </button>
 
+    <button class="theme-toggle" id="themeToggle" type="button" aria-label="Alternar tema" title="Alternar tema">
+        <span class="icon-sun" aria-hidden="true">☀</span>
+        <span class="icon-moon" aria-hidden="true">☾</span>
+    </button>
+
     <!-- MAIN CONTENT -->
     <main class="main-content">
         @if(session('success'))
@@ -76,9 +89,32 @@
     </main>
 
     <script>
-        document.getElementById('sidebarToggle')?.addEventListener('click', function() {
+        var root = document.documentElement;
+        var sidebarToggle = document.getElementById('sidebarToggle');
+        var themeToggle = document.getElementById('themeToggle');
+
+        sidebarToggle?.addEventListener('click', function() {
             document.getElementById('sidebar').classList.toggle('open');
         });
+
+        function applyTheme(theme) {
+            root.setAttribute('data-theme', theme);
+            localStorage.setItem('theme', theme);
+            if (themeToggle) {
+                var nextTheme = theme === 'dark' ? 'claro' : 'escuro';
+                themeToggle.setAttribute('aria-label', 'Mudar para tema ' + nextTheme);
+                themeToggle.setAttribute('title', 'Mudar para tema ' + nextTheme);
+            }
+        }
+
+        themeToggle?.addEventListener('click', function() {
+            var currentTheme = root.getAttribute('data-theme') || 'dark';
+            applyTheme(currentTheme === 'dark' ? 'light' : 'dark');
+        });
+
+        if (themeToggle) {
+            applyTheme(root.getAttribute('data-theme') || 'dark');
+        }
     </script>
     @stack('scripts')
 </body>

@@ -8,6 +8,29 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class UserSubscription extends Model
 {
+    public const STATUS_PENDING = 'pending';
+    public const STATUS_ACTIVE = 'active';
+    public const STATUS_TRIALING = 'trialing';
+    public const STATUS_PAST_DUE = 'past_due';
+    public const STATUS_CANCELED = 'canceled';
+    public const STATUS_EXPIRED = 'expired';
+
+    public const OPEN_STATUSES = [
+        self::STATUS_PENDING,
+        self::STATUS_ACTIVE,
+        self::STATUS_TRIALING,
+        self::STATUS_PAST_DUE,
+    ];
+
+    public const ALLOWED_TRANSITIONS = [
+        self::STATUS_PENDING => [self::STATUS_ACTIVE, self::STATUS_PAST_DUE, self::STATUS_CANCELED],
+        self::STATUS_TRIALING => [self::STATUS_ACTIVE, self::STATUS_CANCELED, self::STATUS_EXPIRED],
+        self::STATUS_ACTIVE => [self::STATUS_PAST_DUE, self::STATUS_CANCELED, self::STATUS_EXPIRED],
+        self::STATUS_PAST_DUE => [self::STATUS_ACTIVE, self::STATUS_CANCELED, self::STATUS_EXPIRED],
+        self::STATUS_CANCELED => [],
+        self::STATUS_EXPIRED => [],
+    ];
+
     protected $fillable = [
         'user_id', 'plan_id', 'status', 'trial_ends_at',
         'starts_at', 'expires_at', 'canceled_at',
@@ -38,12 +61,12 @@ class UserSubscription extends Model
 
     public function isActive(): bool
     {
-        return in_array($this->status, ['active', 'trialing']);
+        return in_array($this->status, [self::STATUS_ACTIVE, self::STATUS_TRIALING, self::STATUS_PAST_DUE], true);
     }
 
     public function isTrialing(): bool
     {
-        return $this->status === 'trialing' && $this->trial_ends_at?->isFuture();
+        return $this->status === self::STATUS_TRIALING && $this->trial_ends_at?->isFuture();
     }
 
     public function isExpired(): bool
@@ -54,6 +77,11 @@ class UserSubscription extends Model
     // Scopes
     public function scopeActive(Builder $q): Builder
     {
-        return $q->whereIn('status', ['active', 'trialing']);
+        return $q->whereIn('status', [self::STATUS_ACTIVE, self::STATUS_TRIALING, self::STATUS_PAST_DUE]);
+    }
+
+    public function canTransitionTo(string $nextStatus): bool
+    {
+        return in_array($nextStatus, self::ALLOWED_TRANSITIONS[$this->status] ?? [], true);
     }
 }

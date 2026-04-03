@@ -5,7 +5,9 @@ namespace App\Services;
 use App\Models\Account;
 use App\Models\Transaction;
 use App\Models\User;
+use App\Support\OpenFinance\TransactionMapper;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
@@ -45,6 +47,8 @@ class OpenFinanceService
     {
         return Http::withToken($this->getAccessToken())
             ->baseUrl($this->baseUrl)
+            ->timeout(30)
+            ->retry(2, 500)
             ->acceptJson();
     }
 
@@ -98,7 +102,45 @@ class OpenFinanceService
 
     public function deleteItem(string $itemId): void
     {
-        $this->http()->delete("/items/{$itemId}");
+        $response = $this->http()->delete("/items/{$itemId}");
+
+        if ($response->failed()) {
+            Log::error("Pluggy delete item failed", ['itemId' => $itemId, 'body' => $response->body()]);
+        }
+    }
+
+    /**
+     * Remove local accounts and transactions linked to the given item,
+     * then deletes the item from the Pluggy provider.
+     */
+    public function disconnectItem(User $user, string $itemId): void
+    {
+        DB::transaction(function () use ($user, $itemId) {
+            $accountIds = Account::where('user_id', $user->id)
+                ->where('open_finance_item_id', $itemId)
+                ->pluck('id');
+
+            if ($accountIds->isNotEmpty()) {
+                Transaction::where('user_id', $user->id)
+                    ->whereIn('account_id', $accountIds)
+                    ->whereNotNull('open_finance_id')
+                    ->delete();
+
+                Account::where('user_id', $user->id)
+                    ->where('open_finance_item_id', $itemId)
+                    ->update([
+                        'open_finance_id'      => null,
+                        'open_finance_item_id' => null,
+                    ]);
+            }
+        });
+
+        $this->deleteItem($itemId);
+
+        Log::info("Open Finance item disconnected", [
+            'user_id' => $user->id,
+            'item_id' => $itemId,
+        ]);
     }
 
     // ── Contas bancárias ─────────────────────────────────────
@@ -151,6 +193,10 @@ class OpenFinanceService
         return $synced;
     }
 
+    /**
+     * Sync transactions from Pluggy to local database.
+     * Uses TransactionMapper for data adaptation and updateOrCreate for idempotency.
+     */
     public function syncTransactions(User $user, string $itemId, string $from, string $to): int
     {
         $accounts = Account::where('user_id', $user->id)
@@ -164,24 +210,31 @@ class OpenFinanceService
                 continue;
             }
 
-            $remoteTransactions = $this->getTransactions($account->open_finance_id, $from, $to);
+            try {
+                $remoteTransactions = $this->getTransactions($account->open_finance_id, $from, $to);
+            } catch (\Throwable $e) {
+                Log::error('Failed to fetch transactions from Pluggy', [
+                    'account_id'      => $account->id,
+                    'open_finance_id' => $account->open_finance_id,
+                    'error'           => $e->getMessage(),
+                ]);
+                continue;
+            }
 
             foreach ($remoteTransactions as $remote) {
-                Transaction::updateOrCreate(
-                    [
-                        'open_finance_id' => $remote['id'],
+                try {
+                    $uniqueKey  = TransactionMapper::uniqueKey($remote, $account->id);
+                    $attributes = TransactionMapper::fromPluggy($remote, $user->id, $account->id);
+
+                    Transaction::updateOrCreate($uniqueKey, $attributes);
+                    $synced++;
+                } catch (\Throwable $e) {
+                    Log::error('Failed to upsert transaction', [
+                        'open_finance_id' => $remote['id'] ?? null,
                         'account_id'      => $account->id,
-                    ],
-                    [
-                        'user_id'     => $user->id,
-                        'description' => $remote['description'] ?? $remote['descriptionRaw'] ?? 'Sem descrição',
-                        'amount'      => abs($remote['amount']),
-                        'type'        => $remote['amount'] < 0 ? 'expense' : 'income',
-                        'date'        => $remote['date'],
-                        'category_id' => null, // será categorizado pelo TransactionCategorizationService
-                    ]
-                );
-                $synced++;
+                        'error'           => $e->getMessage(),
+                    ]);
+                }
             }
         }
 

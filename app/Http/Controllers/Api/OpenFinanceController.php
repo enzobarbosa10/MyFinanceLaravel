@@ -4,7 +4,6 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Services\OpenFinanceService;
-use App\Services\TransactionCategorizationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -12,7 +11,6 @@ class OpenFinanceController extends Controller
 {
     public function __construct(
         private OpenFinanceService $openFinance,
-        private TransactionCategorizationService $categorization,
     ) {}
 
     /**
@@ -29,7 +27,7 @@ class OpenFinanceController extends Controller
             $request->input('item_id'),
         );
 
-        return response()->json(['connect_token' => $token]);
+        return response()->json(['accessToken' => $token]);
     }
 
     /**
@@ -45,8 +43,8 @@ class OpenFinanceController extends Controller
     }
 
     /**
-     * Webhook / callback após usuário conectar conta no widget.
-     * Sincroniza contas e transações.
+     * Callback após usuário conectar conta no widget.
+     * Despacha sync para a fila e retorna imediatamente.
      */
     public function onConnect(Request $request): JsonResponse
     {
@@ -57,20 +55,12 @@ class OpenFinanceController extends Controller
         $user   = $request->user();
         $itemId = $request->input('item_id');
 
-        $accountsSynced = $this->openFinance->syncAccounts($user, $itemId);
-
-        $from = now()->subMonths(3)->toDateString();
-        $to   = now()->toDateString();
-        $transactionsSynced = $this->openFinance->syncTransactions($user, $itemId, $from, $to);
-
-        // Categorizar automaticamente as transações importadas
-        $this->categorization->categorizeUncategorized($user);
+        \App\Jobs\SyncOpenFinanceData::dispatch($user, $itemId);
 
         return response()->json([
-            'message'      => 'Conta conectada e dados sincronizados.',
-            'accounts'     => $accountsSynced,
-            'transactions' => $transactionsSynced,
-        ]);
+            'message' => 'Sincronização iniciada. Seus dados aparecerão em instantes.',
+            'status'  => 'processing',
+        ], 202);
     }
 
     /**
@@ -89,20 +79,16 @@ class OpenFinanceController extends Controller
         $from   = $request->input('from', now()->subMonth()->toDateString());
         $to     = $request->input('to', now()->toDateString());
 
-        $accountsSynced     = $this->openFinance->syncAccounts($user, $itemId);
-        $transactionsSynced = $this->openFinance->syncTransactions($user, $itemId, $from, $to);
-
-        $this->categorization->categorizeUncategorized($user);
+        \App\Jobs\SyncOpenFinanceData::dispatch($user, $itemId, $from, $to);
 
         return response()->json([
-            'message'      => 'Dados sincronizados com sucesso.',
-            'accounts'     => $accountsSynced,
-            'transactions' => $transactionsSynced,
-        ]);
+            'message' => 'Sincronização iniciada.',
+            'status'  => 'processing',
+        ], 202);
     }
 
     /**
-     * Desconecta uma conta bancária (remove item).
+     * Desconecta uma conta bancária (remove item e limpa dados locais).
      */
     public function disconnect(Request $request): JsonResponse
     {
@@ -110,7 +96,7 @@ class OpenFinanceController extends Controller
             'item_id' => 'required|string',
         ]);
 
-        $this->openFinance->deleteItem($request->input('item_id'));
+        $this->openFinance->disconnectItem($request->user(), $request->input('item_id'));
 
         return response()->json(['message' => 'Conta desconectada com sucesso.']);
     }

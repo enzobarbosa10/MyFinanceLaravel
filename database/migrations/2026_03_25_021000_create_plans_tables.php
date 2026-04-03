@@ -31,7 +31,7 @@ return new class extends Migration
             $table->id();
             $table->foreignId('user_id')->constrained()->cascadeOnDelete();
             $table->foreignId('plan_id')->constrained()->restrictOnDelete();
-            $table->enum('status', ['active', 'trialing', 'canceled', 'expired'])->default('active');
+            $table->enum('status', ['pending', 'active', 'trialing', 'past_due', 'canceled', 'expired'])->default('pending');
             $table->dateTime('trial_ends_at')->nullable();
             $table->dateTime('starts_at');
             $table->dateTime('expires_at')->nullable();
@@ -39,6 +39,7 @@ return new class extends Migration
             $table->timestamps();
 
             $table->index('status');
+            $table->index(['user_id', 'status']);
         });
 
         Schema::create('subscription_history', function (Blueprint $table) {

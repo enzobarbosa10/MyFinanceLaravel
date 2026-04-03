@@ -4,7 +4,6 @@ namespace App\Contracts;
 
 use App\Models\Plan;
 use App\Models\User;
-use App\Models\UserSubscription;
 
 interface PaymentGatewayInterface
 {
@@ -35,7 +34,14 @@ interface PaymentGatewayInterface
     /**
      * Processa webhook do gateway e retorna dados normalizados.
      *
-     * @return array{event: string, subscription_id: ?string, payment_id: ?string, status: string}
+     * @return array{
+     *   event: string,
+     *   event_id: ?string,
+     *   event_type: ?string,
+     *   subscription_id: ?string,
+     *   payment_id: ?string,
+     *   status: string
+     * }
      */
     public function handleWebhook(array $payload): array;
 }

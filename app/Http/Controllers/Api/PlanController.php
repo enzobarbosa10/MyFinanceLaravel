@@ -2,16 +2,25 @@
 
 namespace App\Http\Controllers\Api;
 
-use App\Contracts\PaymentGatewayInterface;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Api\ChangePlanRequest;
+use App\Http\Requests\Api\SubscribePlanRequest;
+use App\Http\Resources\Api\PlanResource;
+use App\Http\Resources\Api\SubscriptionResource;
 use App\Models\Plan;
 use App\Services\PlanService;
+use App\Services\Payments\PaymentGatewayResolver;
+use App\Support\ApiResponse;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use InvalidArgumentException;
 
 class PlanController extends Controller
 {
-    public function __construct(private PlanService $planService) {}
+    public function __construct(
+        private readonly PlanService $planService,
+        private readonly PaymentGatewayResolver $gatewayResolver,
+    ) {}
 
     /**
      * Lista todos os planos ativos com suas features.
@@ -20,15 +29,8 @@ class PlanController extends Controller
     {
         $plans = Plan::active()->with('features')->get();
 
-        return response()->json([
-            'plans' => $plans->map(fn (Plan $plan) => [
-                'slug' => $plan->slug,
-                'name' => $plan->name,
-                'price' => $plan->price,
-                'billing_cycle' => $plan->billing_cycle,
-                'trial_days' => $plan->trial_days,
-                'features' => $plan->features->pluck('limit_value', 'feature'),
-            ]),
+        return ApiResponse::success(PlanResource::collection($plans), [
+            'count' => $plans->count(),
         ]);
     }
 
@@ -37,70 +39,53 @@ class PlanController extends Controller
      */
     public function current(Request $request): JsonResponse
     {
-        $user = $request->user();
-        $sub = $user->userSubscription?->load('plan.features');
+        $subscription = $this->planService
+            ->current($request->user())
+            ?->load('plan.features');
 
-        return response()->json([
-            'subscription' => $sub ? [
-                'plan' => $sub->plan->slug,
-                'plan_name' => $sub->plan->name,
-                'status' => $sub->status,
-                'starts_at' => $sub->starts_at,
-                'expires_at' => $sub->expires_at,
-                'trial_ends_at' => $sub->trial_ends_at,
-                'features' => $sub->plan->features->pluck('limit_value', 'feature'),
-            ] : null,
-        ]);
+        return ApiResponse::success(
+            $subscription ? SubscriptionResource::make($subscription) : null
+        );
     }
 
     /**
      * Assina um plano.
      */
-    public function subscribe(Request $request): JsonResponse
+    public function subscribe(SubscribePlanRequest $request): JsonResponse
     {
-        $request->validate([
-            'plan' => 'required|string|exists:plans,slug',
-            'gateway' => 'nullable|string|in:stripe,pagseguro',
-        ]);
+        try {
+            $plan = Plan::bySlug($request->validated('plan'))->firstOrFail();
+            $gateway = $this->gatewayResolver->resolve($request->validated('gateway'));
 
-        $plan = Plan::where('slug', $request->plan)->firstOrFail();
-        $gateway = $this->resolveGateway($request->gateway);
+            $subscription = $this->planService->subscribe($request->user(), $plan, $gateway);
+            $subscription->load('plan.features');
 
-        $subscription = $this->planService->subscribe($request->user(), $plan, $gateway);
-
-        return response()->json([
-            'message' => "Inscrito no plano {$plan->name} com sucesso!",
-            'subscription' => [
-                'plan' => $plan->slug,
-                'status' => $subscription->status,
-                'expires_at' => $subscription->expires_at,
-            ],
-        ], 201);
+            return ApiResponse::success(SubscriptionResource::make($subscription), [
+                'message' => "Inscrito no plano {$plan->name} com sucesso!",
+            ], 201);
+        } catch (InvalidArgumentException $e) {
+            return ApiResponse::error($e->getMessage(), 422);
+        }
     }
 
     /**
      * Altera o plano (upgrade/downgrade).
      */
-    public function changePlan(Request $request): JsonResponse
+    public function changePlan(ChangePlanRequest $request): JsonResponse
     {
-        $request->validate([
-            'plan' => 'required|string|exists:plans,slug',
-            'gateway' => 'nullable|string|in:stripe,pagseguro',
-        ]);
+        try {
+            $plan = Plan::bySlug($request->validated('plan'))->firstOrFail();
+            $gateway = $this->gatewayResolver->resolve($request->validated('gateway'));
 
-        $plan = Plan::where('slug', $request->plan)->firstOrFail();
-        $gateway = $this->resolveGateway($request->gateway);
+            $subscription = $this->planService->changePlan($request->user(), $plan, $gateway);
+            $subscription->load('plan.features');
 
-        $subscription = $this->planService->changePlan($request->user(), $plan, $gateway);
-
-        return response()->json([
-            'message' => "Plano alterado para {$plan->name}!",
-            'subscription' => [
-                'plan' => $plan->slug,
-                'status' => $subscription->status,
-                'expires_at' => $subscription->expires_at,
-            ],
-        ]);
+            return ApiResponse::success(SubscriptionResource::make($subscription), [
+                'message' => "Plano alterado para {$plan->name}!",
+            ]);
+        } catch (InvalidArgumentException $e) {
+            return ApiResponse::error($e->getMessage(), 422);
+        }
     }
 
     /**
@@ -111,25 +96,13 @@ class PlanController extends Controller
         $canceled = $this->planService->cancel($request->user());
 
         if (! $canceled) {
-            return response()->json(['message' => 'Nenhuma assinatura ativa encontrada.'], 404);
+            return ApiResponse::error('Nenhuma assinatura ativa encontrada.', 404);
         }
 
-        return response()->json(['message' => 'Assinatura cancelada com sucesso.']);
-    }
-
-    /**
-     * Resolve o gateway de pagamento a partir do nome.
-     */
-    private function resolveGateway(?string $name): ?PaymentGatewayInterface
-    {
-        if (! $name) {
-            return null;
-        }
-
-        return match ($name) {
-            'stripe' => app(\App\Services\Gateways\StripeGateway::class),
-            'pagseguro' => app(\App\Services\Gateways\PagSeguroGateway::class),
-            default => null,
-        };
+        return ApiResponse::success([
+            'canceled' => true,
+        ], [
+            'message' => 'Assinatura cancelada com sucesso.',
+        ]);
     }
 }
