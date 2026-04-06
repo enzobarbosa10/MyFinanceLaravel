@@ -58,7 +58,7 @@ class SyncOpenFinanceData implements ShouldQueue
         $accountsSynced     = $openFinance->syncAccounts($this->user, $this->itemId);
         $transactionsSynced = $openFinance->syncTransactions($this->user, $this->itemId, $from, $to);
 
-        $categorized = $categorization->categorizeUncategorized($this->user);
+        $categorized = $categorization->categorizeBatch($this->user->id);
 
         Log::info('SyncOpenFinanceData: completed', [
             'user_id'      => $this->user->id,

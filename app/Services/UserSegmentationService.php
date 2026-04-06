@@ -16,19 +16,12 @@ class UserSegmentationService
             return 'free';
         }
 
-        if ($sub->status === UserSubscription::STATUS_TRIALING) {
-            return 'trial';
-        }
-
-        if ($sub->status === UserSubscription::STATUS_PAST_DUE) {
-            return 'risco_de_churn';
-        }
-
-        if ($sub->status === UserSubscription::STATUS_ACTIVE) {
-            return $this->isPowerUser($user->id) ? 'power_users' : 'active';
-        }
-
-        return 'free';
+        return match ($sub->status) {
+            UserSubscription::STATUS_TRIALING => 'trial',
+            UserSubscription::STATUS_PAST_DUE => 'risco_de_churn',
+            UserSubscription::STATUS_ACTIVE   => $this->isPowerUser($user->id) ? 'power_users' : 'active',
+            default                           => 'free',
+        };
     }
 
     public function countsBySegment(): array

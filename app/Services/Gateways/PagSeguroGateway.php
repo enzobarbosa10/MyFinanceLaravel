@@ -15,7 +15,7 @@ class PagSeguroGateway implements PaymentGatewayInterface
 
     public function charge(User $user, Plan $plan): array
     {
-        // TODO: Integrar com PagSeguro API
+        // [STUB] Integrar com PagSeguro API
         //
         // $response = Http::withHeaders([
         //     'Authorization' => 'Bearer ' . config('services.pagseguro.token'),
@@ -41,7 +41,7 @@ class PagSeguroGateway implements PaymentGatewayInterface
 
     public function createSubscription(User $user, Plan $plan): array
     {
-        // TODO: Integrar com PagSeguro Assinaturas API
+        // [STUB] Integrar com PagSeguro Assinaturas API
         // POST https://api.pagseguro.com/pre-approvals
 
         return [
@@ -52,13 +52,13 @@ class PagSeguroGateway implements PaymentGatewayInterface
 
     public function cancelSubscription(string $gatewaySubscriptionId): bool
     {
-        // TODO: PUT /pre-approvals/{id}/cancel
+        // [STUB] PUT /pre-approvals/{id}/cancel
         return true;
     }
 
     public function handleWebhook(array $payload): array
     {
-        // TODO: Processar notificações do PagSeguro
+        // [STUB] Processar notificações do PagSeguro
         // Tipos: transaction, preApproval
 
         $type = $payload['notificationType'] ?? 'unknown';

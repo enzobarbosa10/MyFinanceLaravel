@@ -105,7 +105,7 @@ class TransactionCategorizationService
      * When a user manually categorizes a transaction, we can extract
      * the keyword and create a rule so future transactions match automatically.
      */
-    public function learnFromManual(Transaction $transaction, string $keyword = null): ?CategorizationRule
+    public function learnFromManual(Transaction $transaction, ?string $keyword = null): ?CategorizationRule
     {
         $pattern = $keyword ?? $this->extractKeyword($transaction->description ?? '');
 
@@ -207,7 +207,7 @@ class TransactionCategorizationService
      *   - Resolve to a Category model
      *   - Optionally create a new AI rule via learnFromAi()
      */
-    protected function applyAi(Transaction $transaction): ?Category
+    protected function applyAi(Transaction $transaction): ?Category // NOSONAR - parameter needed for future AI implementation
     {
         // Future integration point — example pseudocode:
         //

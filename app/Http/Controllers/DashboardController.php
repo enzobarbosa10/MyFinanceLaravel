@@ -74,7 +74,11 @@ class DashboardController extends Controller
 
         // Greeting
         $hour = (int) date('H');
-        $greeting = $hour < 12 ? 'Bom dia' : ($hour < 18 ? 'Boa tarde' : 'Boa noite');
+        $greeting = match (true) {
+            $hour < 12 => 'Bom dia',
+            $hour < 18 => 'Boa tarde',
+            default    => 'Boa noite',
+        };
         $firstName = explode(' ', trim($user->name))[0];
 
         // Expense categories for chart

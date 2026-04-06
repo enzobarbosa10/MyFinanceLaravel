@@ -6,6 +6,7 @@ use App\Models\Account;
 use App\Models\Transaction;
 use App\Models\User;
 use App\Support\OpenFinance\TransactionMapper;
+use App\Exceptions\OpenFinanceException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
@@ -36,7 +37,7 @@ class OpenFinanceService
 
             if ($response->failed()) {
                 Log::error('Pluggy auth failed', ['body' => $response->body()]);
-                throw new \RuntimeException('Falha na autenticação com Pluggy.');
+                throw new OpenFinanceException('Falha na autenticação com Pluggy.');
             }
 
             return $response->json('apiKey');
@@ -66,7 +67,7 @@ class OpenFinanceService
 
         if ($response->failed()) {
             Log::error('Pluggy connect token failed', ['body' => $response->body()]);
-            throw new \RuntimeException('Falha ao criar token de conexão.');
+            throw new OpenFinanceException('Falha ao criar token de conexão.');
         }
 
         return $response->json('accessToken');
@@ -94,7 +95,7 @@ class OpenFinanceService
         $response = $this->http()->get("/items/{$itemId}");
 
         if ($response->failed()) {
-            throw new \RuntimeException('Falha ao buscar item.');
+            throw new OpenFinanceException('Falha ao buscar item.');
         }
 
         return $response->json();

@@ -82,7 +82,7 @@
                     <span style="background:#f59e0b;color:#fff;padding:0.15rem 0.5rem;border-radius:6px;font-size:0.75rem;margin-left:0.5rem;">Atenção</span>
                 @endif
             </div>
-            <span style="font-size:0.875rem;font-weight:600;color:{{ $alert->alert_type === 'exceeded' ? 'var(--danger)' : '#f59e0b' }};">
+            <span @style(["font-size:0.875rem", "font-weight:600", "color:" . ($alert->alert_type === 'exceeded' ? 'var(--danger)' : '#f59e0b')])>
                 {{ number_format($alert->percentage, 0) }}% do orçamento
             </span>
         </div>
@@ -111,7 +111,7 @@
                         <span style="font-weight:600;">R$ {{ number_format($cat->total, 2, ',', '.') }}</span>
                     </div>
                     <div class="progress-bar-container">
-                        <div class="progress-bar" style="width:{{ $pct }}%;background:{{ $color }};"></div>
+                        <div class="progress-bar" @style(["width:{$pct}%", "background:{$color}"])></div>
                     </div>
                 </div>
             @endforeach
@@ -133,7 +133,7 @@
                     <span style="font-weight:600;">{{ number_format($goal->progressPercentage(), 0) }}%</span>
                 </div>
                 <div class="progress-bar-container">
-                    <div class="progress-bar progress-bar-ok" style="width:{{ $goal->progressPercentage() }}%;"></div>
+                    <div class="progress-bar progress-bar-ok" @style(["width:" . $goal->progressPercentage() . "%"])></div>
                 </div>
             </div>
         @empty
@@ -187,7 +187,7 @@
                     <span style="font-weight:600;">{{ number_format($pct, 0) }}%</span>
                 </div>
                 <div class="progress-bar-container">
-                    <div class="progress-bar {{ $barClass }}" style="width:{{ min($pct, 100) }}%;"></div>
+                    <div class="progress-bar {{ $barClass }}" @style(["width:" . min($pct, 100) . "%"])></div>
                 </div>
             </div>
         @empty

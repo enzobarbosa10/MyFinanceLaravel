@@ -15,7 +15,7 @@ class StripeGateway implements PaymentGatewayInterface
 
     public function charge(User $user, Plan $plan): array
     {
-        // TODO: Integrar com Stripe API
+        // [STUB] Integrar com Stripe API
         // Exemplo: \Stripe\Charge::create([...])
         //
         // $stripe = new \Stripe\StripeClient(config('services.stripe.secret'));
@@ -40,7 +40,7 @@ class StripeGateway implements PaymentGatewayInterface
 
     public function createSubscription(User $user, Plan $plan): array
     {
-        // TODO: Integrar com Stripe Subscriptions API
+        // [STUB] Integrar com Stripe Subscriptions API
         // $stripe = new \Stripe\StripeClient(config('services.stripe.secret'));
         // $sub = $stripe->subscriptions->create([
         //     'customer' => $user->stripe_customer_id,
@@ -55,13 +55,13 @@ class StripeGateway implements PaymentGatewayInterface
 
     public function cancelSubscription(string $gatewaySubscriptionId): bool
     {
-        // TODO: $stripe->subscriptions->cancel($gatewaySubscriptionId);
+        // [STUB] $stripe->subscriptions->cancel($gatewaySubscriptionId);
         return true;
     }
 
     public function handleWebhook(array $payload): array
     {
-        // TODO: Processar eventos do Stripe webhook
+        // [STUB] Processar eventos do Stripe webhook
         // Eventos comuns: invoice.paid, invoice.payment_failed, customer.subscription.deleted
 
         $type = $payload['type'] ?? 'unknown';

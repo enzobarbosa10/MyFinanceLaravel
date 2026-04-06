@@ -15,6 +15,8 @@ use App\Models\ProcessedEvent;
 use App\Models\SubscriptionLog;
 use App\Models\User;
 use App\Models\UserSubscription;
+use App\Services\Concerns\HandlesCircuitBreaker;
+use App\Services\Concerns\HandlesSubscriptionLifecycle;
 use App\Services\OperationalAlertService;
 use App\Services\Payments\SubscriptionTelemetryService;
 use Illuminate\Database\QueryException;
@@ -26,6 +28,8 @@ use Throwable;
 
 class PlanService
 {
+    use HandlesCircuitBreaker;
+    use HandlesSubscriptionLifecycle;
     public function __construct(
         private readonly SubscriptionTelemetryService $telemetry,
         private readonly OperationalAlertService $alertService,
@@ -330,28 +334,6 @@ class PlanService
 
     // ─── Private ─────────────────────────────────────────────
 
-    private function lockCurrentOpenSubscription(User $user): ?UserSubscription
-    {
-        return UserSubscription::query()
-            ->where('user_id', $user->id)
-            ->whereIn('status', UserSubscription::OPEN_STATUSES)
-            ->latest('id')
-            ->lockForUpdate()
-            ->first();
-    }
-
-    private function cancelLockedSubscription(?UserSubscription $subscription): void
-    {
-        if (! $subscription) {
-            return;
-        }
-
-        $subscription->update([
-            'status' => UserSubscription::STATUS_CANCELED,
-            'canceled_at' => now(),
-        ]);
-    }
-
     private function calculateExpiry(Plan $plan): ?\DateTimeInterface
     {
         return match ($plan->billing_cycle) {
@@ -412,107 +394,6 @@ class PlanService
         }
     }
 
-    private function runGatewayCall(callable $callback, string $gateway, string $operation): array
-    {
-        $this->ensureCircuitIsClosed($gateway);
-
-        $attempts = (int) config('subscriptions.gateway.retry.attempts', 3);
-        $baseDelayMs = (int) config('subscriptions.gateway.retry.base_delay_ms', 200);
-        $timeoutSeconds = (int) config('subscriptions.gateway.timeout_seconds', 10);
-        $lastException = null;
-
-        for ($attempt = 1; $attempt <= $attempts; $attempt++) {
-            $startedAt = microtime(true);
-
-            try {
-                $result = $callback();
-                $elapsedSeconds = microtime(true) - $startedAt;
-
-                if ($elapsedSeconds > $timeoutSeconds) {
-                    throw new PaymentGatewayUnavailableException("Timeout ao executar {$operation} no gateway {$gateway}.");
-                }
-
-                $this->resetCircuit($gateway);
-
-                return $result;
-            } catch (Throwable $e) {
-                $lastException = $e;
-                $this->registerCircuitFailure($gateway);
-
-                if ($attempt === $attempts) {
-                    break;
-                }
-
-                $delayMs = $baseDelayMs * (2 ** ($attempt - 1));
-                usleep($delayMs * 1000);
-            }
-        }
-
-        throw new PaymentGatewayUnavailableException(
-            "Falha ao executar {$operation} no gateway {$gateway} após {$attempts} tentativas.",
-            0,
-            $lastException,
-        );
-    }
-
-    private function ensureCircuitIsClosed(string $gateway): void
-    {
-        $openUntil = Cache::get($this->circuitOpenUntilCacheKey($gateway));
-
-        if (! $openUntil) {
-            return;
-        }
-
-        if (now()->lt($openUntil)) {
-            $this->alertService->alertCircuitBreakerOpen($gateway, ['open_until' => $openUntil]);
-            throw new PaymentGatewayUnavailableException("Circuit breaker aberto para gateway {$gateway}.");
-        }
-
-        $this->resetCircuit($gateway);
-    }
-
-    private function registerCircuitFailure(string $gateway): void
-    {
-        $failures = Cache::increment($this->circuitFailureCountCacheKey($gateway));
-        $threshold = (int) config('subscriptions.gateway.circuit_breaker.failure_threshold', 5);
-
-        if ($failures < $threshold) {
-            return;
-        }
-
-        $cooldown = (int) config('subscriptions.gateway.circuit_breaker.cooldown_seconds', 60);
-        Cache::put($this->circuitOpenUntilCacheKey($gateway), now()->addSeconds($cooldown), now()->addSeconds($cooldown));
-        $this->alertService->alertCircuitBreakerOpen($gateway, ['cooldown_seconds' => $cooldown]);
-    }
-
-    private function resetCircuit(string $gateway): void
-    {
-        Cache::forget($this->circuitFailureCountCacheKey($gateway));
-        Cache::forget($this->circuitOpenUntilCacheKey($gateway));
-    }
-
-    private function circuitFailureCountCacheKey(string $gateway): string
-    {
-        return 'payment:circuit:'.$gateway.':failures';
-    }
-
-    private function circuitOpenUntilCacheKey(string $gateway): string
-    {
-        return 'payment:circuit:'.$gateway.':open_until';
-    }
-
-    private function logFinancialEvent(string $event, User $user, UserSubscription $subscription, array $context = []): void
-    {
-        Log::info($event, array_merge([
-            'user_id' => $user->id,
-            'subscription_id' => $subscription->id,
-            'gateway' => $subscription->gateway,
-            'event_type' => $event,
-            'plan_id' => $subscription->plan_id,
-            'status' => $subscription->status,
-        ], $context));
-    }
-
     private function registerProcessedEvent(string $gateway, string $eventId, string $eventType, array $payload): bool
     {
         try {
@@ -532,54 +413,5 @@ class PlanService
 
             throw $e;
         }
-    }
-
-    private function applyWebhookEvent(UserSubscription $subscription, array $normalized): void
-    {
-        $event = $normalized['event'] ?? '';
-
-        if ($event === 'payment_success') {
-            $this->transitionSubscriptionStatus($subscription, UserSubscription::STATUS_ACTIVE);
-            return;
-        }
-
-        if ($event === 'payment_failed') {
-            $this->transitionSubscriptionStatus($subscription, UserSubscription::STATUS_PAST_DUE);
-            return;
-        }
-
-        if ($event === 'subscription_canceled') {
-            $this->transitionSubscriptionStatus($subscription, UserSubscription::STATUS_CANCELED);
-        }
-    }
-
-    private function transitionSubscriptionStatus(UserSubscription $subscription, string $nextStatus): void
-    {
-        if ($subscription->status === $nextStatus) {
-            return;
-        }
-
-        if (! $subscription->canTransitionTo($nextStatus)) {
-            throw new InvalidSubscriptionTransitionException(
-                "Transição inválida de {$subscription->status} para {$nextStatus}."
-            );
-        }
-
-        $subscription->update([
-            'status' => $nextStatus,
-            'canceled_at' => $nextStatus === UserSubscription::STATUS_CANCELED ? now() : $subscription->canceled_at,
-        ]);
-    }
-
-    private function writeSubscriptionAudit(UserSubscription $subscription, string $action, array $payload): void
-    {
-        SubscriptionLog::create([
-            'subscription_id' => $subscription->id,
-            'user_id' => $subscription->user_id,
-            'action' => $action,
-            'gateway' => $subscription->gateway,
-            'payload' => $payload,
-            'logged_at' => now(),
-        ]);
     }
 }
