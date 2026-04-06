@@ -77,7 +77,7 @@ trait HasFinancialRelationships
         return $this->hasMany(CategorizationRule::class);
     }
 
-    public function notifications(): HasMany
+    public function userNotifications(): HasMany
     {
         return $this->hasMany(Notification::class);
     }
